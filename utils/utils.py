@@ -24,9 +24,9 @@ def load_args():
     # parser.add_argument('--seed', type=int, default=42, help='random seed')
     # parser.add_argument('--device', type=str, default='cpu', help='Device to run the model on (e.g., "cpu", "0,1,2")')
     parser.add_argument('--benchmark_config', type=str, default='config/benchmark_config.yaml', help='Path to the benchmark configuration file')
-    parser.add_argument('--fingerprint_config', type=str, default='config/llmmap.yaml', help='Path to the fingerprint configuration file')
+    parser.add_argument('--fingerprint_config', type=str, default='config/trap.yaml', help='Path to the fingerprint configuration file')
     parser.add_argument('--log_path', type=str, default='logs/', help='Path to save logs and results')
-    # parser.add_argument('--fingerprint_method', type=str, default='llmmap', help='Fingerprinting method to use (e.g., "llmmap")')
+    # parser.add_argument('--fingerprint_method', type=str, default='trap', help='Fingerprinting method to use (e.g., "trap")')
 
     args = parser.parse_args()
     return args

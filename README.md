@@ -27,7 +27,7 @@ pip install -r requirements.txt
 - All configuration files required to reproduce the experiments are located in the `config/` directory. Each YAML file corresponds to a specific experiment or benchmark setting.
 - All scripts for running experiments are provided in the `scripts/` directory. Simply execute the corresponding shell script to run an experiment. For example:
   ```bash
-  bash scripts/gradient.sh
+  bash scripts/trap.sh
   ```
   The results will be generated according to the configuration specified in the related config file.
 
