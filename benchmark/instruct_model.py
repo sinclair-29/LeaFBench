@@ -67,6 +67,11 @@ class InstructModel(ModelInterface):
                     formatted_prompt = f"{system_prompt}\n\nUser: {messages[-1]['content']}\n\nAssistant:"
                 else:
                     formatted_prompt = f"User: {messages[-1]['content']}\n\nAssistant:"
+
+            # Chat templates such as Llama-2's already start with a BOS token.
+            # Remove it here because the tokenizer adds BOS again below.
+            if tokenizer.bos_token and formatted_prompt.startswith(tokenizer.bos_token):
+                formatted_prompt = formatted_prompt[len(tokenizer.bos_token):]
             tokenized_prompts.append(formatted_prompt)
         
         # Tokenize input prompts
