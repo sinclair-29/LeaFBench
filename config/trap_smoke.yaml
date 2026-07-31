@@ -1,0 +1,28 @@
+fingerprint_method: "trap"
+fingerprint_type: "black-box"
+seed: 42
+
+cached_fingerprints_path: "cache/trap/smoke_fingerprints.pth"
+re_fingerprinting: true
+
+# One trap is sufficient for verifying the pipeline.
+n_goals: 1
+string_type: "number_simpletarget"
+string_length: 3
+
+prompt_path: "cache/trap/smoke_prompts.csv"
+regenerate_prompts: true
+
+# One extraction attempt per source/test-model pair.
+test_n_times: 1
+batch_size: 1
+
+gcg_config:
+  num_steps: 10
+  search_width: 16
+  batch_size: 16
+  topk: 16
+  n_replace: 1
+  seed: 40
+  use_prefix_cache: false
+  early_stop: true

@@ -9,3 +9,7 @@ walkthrough.md
 /.vscode
 *.log
 test.py
+
+__pycache__/
+*.pyc
+digest.txt

@@ -68,7 +68,8 @@ if __name__ == "__main__":
     fingerprint_method.prepare(train_models=benchmark.get_training_models())
 
     # extracting fingerprints from all the models
-    # logger.info("Extracting fingerprints from models...")
+    # logger.info("Extracting fingerprints from models...")、
+# WHY: benchmark有哪些属性？
     all_models = benchmark.get_all_models()
     try:
         for model_name, model in all_models.items():
