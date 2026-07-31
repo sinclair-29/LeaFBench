@@ -13,16 +13,18 @@ string_length: 3
 prompt_path: "cache/trap/smoke_prompts.csv"
 regenerate_prompts: true
 
-# One extraction attempt per source/test-model pair.
-test_n_times: 1
-batch_size: 1
+# Match the paper's ten stochastic completions per suffix.
+test_n_times: 10
+batch_size: 10
 
 gcg_config:
-  num_steps: 10
-  search_width: 16
-  batch_size: 16
-  topk: 16
+  # Small fixed-step approximation of the paper's 1500-step GCG search.
+  num_steps: 200
+  search_width: 64
+  batch_size: 64
+  topk: 64
   n_replace: 1
   seed: 40
   use_prefix_cache: false
-  early_stop: true
+  # The paper keeps optimizing and selects the suffix with the lowest loss.
+  early_stop: false

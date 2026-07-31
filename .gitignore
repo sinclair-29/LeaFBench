@@ -1,3 +1,5 @@
+.DS_Store
+docs/
 .idea/
 LeafBench.txt
 walkthrough.md

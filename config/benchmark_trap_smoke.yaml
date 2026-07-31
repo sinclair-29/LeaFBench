@@ -3,9 +3,10 @@ offload_path: "cache/model_offload_smoke/"
 
 default_generation_params:
   max_new_tokens: 16
-  temperature: 0.7
+  # Paper-default nucleus sampling for Llama-2-7B-chat.
+  temperature: 0.6
   top_p: 0.9
-  top_k: 50
+  top_k: 0
   do_sample: true
   max_input_length: 256
 
@@ -22,7 +23,7 @@ models:
 
     predeployed_models: []
 
-  # Unrelated negative-control model
+  # Second reference model for a minimal cross-model specificity check.
   - model_family: Qwen2.5-7B-Instruct-negative
     pretrained_model:
       model_name: Qwen2.5-7B-Instruct
