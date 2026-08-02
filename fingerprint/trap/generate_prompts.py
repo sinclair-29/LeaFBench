@@ -5,6 +5,41 @@ import os
 import nanogcg
 
 
+def join_prompt_and_suffix(prompt, suffix, tokenizer):
+    """Join a GCG suffix without changing the token sequence it optimized."""
+    placeholder = "{optim_str}"
+    template = tokenizer.apply_chat_template(
+        [{"role": "user", "content": prompt + placeholder}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    if tokenizer.bos_token and template.startswith(tokenizer.bos_token):
+        template = template[len(tokenizer.bos_token):]
+
+    before_str, after_str = template.split(placeholder)
+    expected_ids = (
+        tokenizer(before_str)["input_ids"]
+        + tokenizer(suffix, add_special_tokens=False)["input_ids"]
+        + tokenizer(after_str, add_special_tokens=False)["input_ids"]
+    )
+
+    for separator in ("", " ", "\n", "\t"):
+        fingerprint = prompt + separator + suffix
+        rendered = tokenizer.apply_chat_template(
+            [{"role": "user", "content": fingerprint}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        if tokenizer.bos_token and rendered.startswith(tokenizer.bos_token):
+            rendered = rendered[len(tokenizer.bos_token):]
+        if tokenizer(rendered)["input_ids"] == expected_ids:
+            return fingerprint
+
+    raise RuntimeError(
+        "Unable to serialize the optimized suffix without changing its token sequence."
+    )
+
+
 def generate_random_string(string_length, string_type, lower_case_only=True):
     if string_type == 'string':
         # Define the set of ASCII letters (both lowercase and uppercase)
@@ -87,9 +122,7 @@ def generate_adversarial_suffix(model, tokenizer, prompts, targets, config):
             target=target,
             config=gcg_config
         )
-        # Some tokenizers decode a leading word-boundary token without a
-        # visible space at the start of a standalone string. Preserve that
-        # boundary when the optimized suffix is joined back to the prompt.
-        separator = "" if prefix.best_string[:1].isspace() else " "
-        generated_suffixes.append(prompt + separator + prefix.best_string)
+        generated_suffixes.append(
+            join_prompt_and_suffix(prompt, prefix.best_string, tokenizer)
+        )
     return generated_suffixes
