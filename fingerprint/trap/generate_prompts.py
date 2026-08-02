@@ -115,14 +115,18 @@ def generate_adversarial_suffix(model, tokenizer, prompts, targets, config):
     )
     generated_suffixes = []
     for prompt, target in zip(prompts, targets):
+        # TRAP optimizes and evaluates `instruction + " " + control`.
+        # Keep that separator inside the optimization context instead of
+        # trying to add it only after NanoGCG has selected a suffix.
+        attack_prompt = prompt if prompt[-1:].isspace() else prompt + " "
         prefix = nanogcg.run(
             model=model,
             tokenizer=tokenizer,
-            messages=prompt,
+            messages=attack_prompt,
             target=target,
             config=gcg_config
         )
         generated_suffixes.append(
-            join_prompt_and_suffix(prompt, prefix.best_string, tokenizer)
+            join_prompt_and_suffix(attack_prompt, prefix.best_string, tokenizer)
         )
     return generated_suffixes
