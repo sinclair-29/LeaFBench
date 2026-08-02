@@ -87,6 +87,9 @@ def generate_adversarial_suffix(model, tokenizer, prompts, targets, config):
             target=target,
             config=gcg_config
         )
-        generated_suffixes.append(prompt + "" + prefix.best_string)
+        # Some tokenizers decode a leading word-boundary token without a
+        # visible space at the start of a standalone string. Preserve that
+        # boundary when the optimized suffix is joined back to the prompt.
+        separator = "" if prefix.best_string[:1].isspace() else " "
+        generated_suffixes.append(prompt + separator + prefix.best_string)
     return generated_suffixes
-        
