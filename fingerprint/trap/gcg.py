@@ -424,7 +424,8 @@ class GCGOptimizer:
         best_ids = current_ids[0].clone()
         best_loss = float("inf")
 
-        for step in tqdm(range(self.num_steps), desc="TRAP GCG"):
+        progress = tqdm(range(self.num_steps), desc="TRAP GCG")
+        for step in progress:
             gradient = self._compute_gradient(current_ids)
             with torch.no_grad():
                 sampled_ids = self._sample_ids(current_ids[0], gradient)
@@ -437,6 +438,12 @@ class GCGOptimizer:
             if current_loss < best_loss:
                 best_loss = current_loss
                 best_ids = current_ids[0].clone()
+            progress.set_postfix(
+                loss=f"{current_loss:.6f}",
+                best=f"{best_loss:.6f}",
+                valid=candidates.shape[0],
+                refresh=True,
+            )
             logger.debug(
                 "TRAP GCG step %d/%d: current loss %.6f, best loss %.6f",
                 step + 1,
