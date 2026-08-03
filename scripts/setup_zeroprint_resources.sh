@@ -13,6 +13,11 @@ GLOVE_MD5="40ec481866001177b8cd4cb0df92924f"
 GLOVE_BASE_URL="https://github.com/RaRe-Technologies/gensim-data/releases/download/glove-wiki-gigaword-100"
 GENSIM_INFO_URL="https://raw.githubusercontent.com/RaRe-Technologies/gensim-data/master/list.json"
 
+CURL_RETRY_OPTIONS=(--retry 10 --retry-delay 3)
+if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+    CURL_RETRY_OPTIONS+=(--retry-all-errors)
+fi
+
 echo "Using Python: $(${PYTHON_BIN} --version 2>&1)"
 echo "Resource directory: ${MODEL_ROOT}"
 
@@ -38,9 +43,7 @@ if [[ -f "${GLOVE_FILE}" ]] && echo "${GLOVE_MD5}  ${GLOVE_FILE}" | md5sum --che
 else
     echo "Downloading GloVe model..."
     curl -fL \
-        --retry 10 \
-        --retry-delay 3 \
-        --retry-all-errors \
+        "${CURL_RETRY_OPTIONS[@]}" \
         --continue-at - \
         -o "${GLOVE_FILE}.part" \
         "${GLOVE_BASE_URL}/glove-wiki-gigaword-100.gz"
@@ -50,10 +53,10 @@ else
 fi
 
 echo "Downloading Gensim loader and metadata..."
-curl -fL --retry 10 --retry-all-errors \
+curl -fL "${CURL_RETRY_OPTIONS[@]}" \
     -o "${GLOVE_DIR}/__init__.py" \
     "${GLOVE_BASE_URL}/__init__.py"
-curl -fL --retry 10 --retry-all-errors \
+curl -fL "${CURL_RETRY_OPTIONS[@]}" \
     -o "${MODEL_ROOT}/information.json" \
     "${GENSIM_INFO_URL}"
 
