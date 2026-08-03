@@ -1,0 +1,12 @@
+fingerprint_method: "reef"
+fingerprint_type: "white-box"
+seed: 42
+
+cached_fingerprints_path: "cache/reef/smoke_fingerprints.pth"
+re_fingerprinting: true
+
+# Keep the smoke test small while exercising batched activation extraction and CKA.
+dataset_path: "data/truthfulqa.csv"
+num_samples: 8
+layers: 18
+batch_size: 4

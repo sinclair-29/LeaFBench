@@ -1,0 +1,39 @@
+max_loaded_models: 1
+offload_path: "cache/model_offload_reef_smoke/"
+
+default_generation_params:
+  max_new_tokens: 16
+  temperature: 0.6
+  top_p: 0.9
+  top_k: 0
+  do_sample: true
+  max_input_length: 256
+
+models:
+  # Local reference model used by the existing TRAP smoke configuration.
+  - model_family: Llama-2-7B-chat-smoke
+    pretrained_model:
+      model_name: Llama-2-7B-chat
+      model_path: /home/chj/LLMJailbreak/models/Llama-2-7b-chat-hf
+
+    instruct_model:
+      model_name: Llama-2-7B-chat
+      model_path: /home/chj/LLMJailbreak/models/Llama-2-7b-chat-hf
+
+    predeployed_models: []
+
+  # Local negative control for a minimal cross-model CKA comparison.
+  - model_family: Qwen2.5-7B-Instruct-negative
+    pretrained_model:
+      model_name: Qwen2.5-7B-Instruct
+      model_path: /home/chj/LLMJailbreak/models/Qwen2.5-7B-Instruct
+
+    instruct_model:
+      model_name: Qwen2.5-7B-Instruct
+      model_path: /home/chj/LLMJailbreak/models/Qwen2.5-7B-Instruct
+
+    predeployed_models: []
+
+training_data:
+  models: []
+  deploying_techniques: []
