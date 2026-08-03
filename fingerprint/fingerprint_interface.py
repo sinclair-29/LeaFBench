@@ -7,6 +7,11 @@ class LLMFingerprintInterface:
     Interface for LLM fingerprinting.
     """
 
+    # Symmetric methods fingerprint every model before comparison. Asymmetric
+    # methods can override these properties to fingerprint candidates only.
+    requires_suspect_fingerprints = True
+    candidate_model_types = ("pretrained", "instruct")
+
     def __init__(self, config=None, accelerator=None):
         self.config = config
         self.accelerator = accelerator

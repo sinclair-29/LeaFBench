@@ -11,6 +11,11 @@ from accelerate import disk_offload, dispatch_model, infer_auto_device_map
 from accelerate.utils import get_balanced_memory
 import gc
 
+
+class TokenEmbeddingOverrideError(RuntimeError):
+    """Raised when a temporary token embedding cannot be applied safely."""
+
+
 class ModelPool:
     def __init__(self, accelerator=None, max_loaded_models=1, offload_path=None, fingerprint_type="black-box", fingerprint_method=None):
         # self.models = {}  # {model_name: model_instance}
@@ -25,6 +30,8 @@ class ModelPool:
         self.fingerprint_type = fingerprint_type
         self.fingerprint_method = fingerprint_method
         self.backend = BACKEND("torch")  # Set backend for gptqmodel
+        self.token_embedding_overrides = {}
+        self.token_embedding_override_states = {}
 
     def register_model(self, model_name, model_path):
         """
@@ -45,9 +52,139 @@ class ModelPool:
         Get the tokenizer for the specified model, load it on demand and cache it.
         """
         tokenizer = AutoTokenizer.from_pretrained(self.model_paths[model_name]) if self.model_paths[model_name] else None
+        override = self.token_embedding_overrides.get(model_name)
+        if override is not None:
+            added = tokenizer.add_tokens([override["token"]])
+            token_ids = tokenizer.encode(override["token"], add_special_tokens=False)
+            if added != 1 or token_ids != [override["token_id"]]:
+                raise TokenEmbeddingOverrideError(
+                    f"Model {model_name} cannot represent copyright token "
+                    f"{override['token']!r} as one newly added token."
+                )
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
         return tokenizer
+
+    def register_token_embedding_override(self, model_name, token, embedding):
+        """Register a temporary token embedding used by the next generation call."""
+        if model_name not in self.model_paths:
+            raise TokenEmbeddingOverrideError(f"Model {model_name} is not registered.")
+        if not isinstance(embedding, torch.Tensor) or embedding.ndim != 1:
+            raise TokenEmbeddingOverrideError("Token embedding override must be a 1D tensor.")
+
+        if model_name in self.token_embedding_overrides:
+            self.clear_token_embedding_override(model_name)
+
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(self.model_paths[model_name])
+            added = tokenizer.add_tokens([token])
+            token_ids = tokenizer.encode(token, add_special_tokens=False)
+        except Exception as exc:
+            raise TokenEmbeddingOverrideError(
+                f"Could not prepare copyright token for model {model_name}: {exc}"
+            ) from exc
+        if added != 1 or len(token_ids) != 1:
+            raise TokenEmbeddingOverrideError(
+                f"Model {model_name} cannot represent copyright token {token!r} "
+                "as one newly added token."
+            )
+
+        self.token_embedding_overrides[model_name] = {
+            "token": token,
+            "token_id": token_ids[0],
+            "vocab_size": len(tokenizer),
+            "embedding": embedding.detach().cpu(),
+        }
+
+    def _apply_token_embedding_override(self, model_name, model):
+        override = self.token_embedding_overrides.get(model_name)
+        if override is None or model_name in self.token_embedding_override_states:
+            return
+
+        if not hasattr(model, "get_input_embeddings") or not hasattr(model, "resize_token_embeddings"):
+            raise TokenEmbeddingOverrideError(
+                f"Model {model_name} does not expose a resizable input embedding layer."
+            )
+
+        input_embeddings = model.get_input_embeddings()
+        if input_embeddings is None or not hasattr(input_embeddings, "weight"):
+            raise TokenEmbeddingOverrideError(
+                f"Model {model_name} does not expose input embedding weights."
+            )
+
+        original_vocab_size = input_embeddings.weight.shape[0]
+        token_id = override["token_id"]
+        original_row = None
+        if token_id < original_vocab_size:
+            original_row = input_embeddings.weight[token_id].detach().cpu().clone()
+
+        try:
+            if token_id >= original_vocab_size:
+                model.resize_token_embeddings(override["vocab_size"])
+                input_embeddings = model.get_input_embeddings()
+
+            if token_id >= input_embeddings.weight.shape[0]:
+                raise TokenEmbeddingOverrideError(
+                    f"Model {model_name} did not resize to token id {token_id}."
+                )
+            if input_embeddings.weight.shape[1] != override["embedding"].numel():
+                raise TokenEmbeddingOverrideError(
+                    f"Model {model_name} embedding width {input_embeddings.weight.shape[1]} "
+                    f"does not match candidate width {override['embedding'].numel()}."
+                )
+
+            with torch.no_grad():
+                input_embeddings.weight[token_id].copy_(
+                    override["embedding"].to(
+                        device=input_embeddings.weight.device,
+                        dtype=input_embeddings.weight.dtype,
+                    )
+                )
+        except Exception as exc:
+            if model.get_input_embeddings().weight.shape[0] != original_vocab_size:
+                model.resize_token_embeddings(original_vocab_size)
+            if isinstance(exc, TokenEmbeddingOverrideError):
+                raise
+            raise TokenEmbeddingOverrideError(
+                f"Could not apply copyright embedding to model {model_name}: {exc}"
+            ) from exc
+
+        self.token_embedding_override_states[model_name] = {
+            "original_vocab_size": original_vocab_size,
+            "original_row": original_row,
+            "token_id": token_id,
+        }
+
+    def clear_token_embedding_override(self, model_name):
+        """Restore the original in-memory model after a temporary override."""
+        state = self.token_embedding_override_states.pop(model_name, None)
+        model = self.current_loaded_models.get(model_name)
+
+        if state is not None and model is not None:
+            try:
+                current_vocab_size = model.get_input_embeddings().weight.shape[0]
+                if current_vocab_size != state["original_vocab_size"]:
+                    model.resize_token_embeddings(state["original_vocab_size"])
+                elif state["original_row"] is not None:
+                    input_embeddings = model.get_input_embeddings()
+                    with torch.no_grad():
+                        input_embeddings.weight[state["token_id"]].copy_(
+                            state["original_row"].to(
+                                device=input_embeddings.weight.device,
+                                dtype=input_embeddings.weight.dtype,
+                            )
+                        )
+            except Exception:
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "Failed to restore temporary embedding for %s; unloading the model.",
+                    model_name,
+                    exc_info=True,
+                )
+                self._completely_unload_model(model, model_name, logger)
+                del self.current_loaded_models[model_name]
+
+        self.token_embedding_overrides.pop(model_name, None)
 
     def get_model(self, model_name, type=None):
         """
@@ -72,6 +209,7 @@ class ModelPool:
                     
                     # Remove from the loaded models dictionary
                     del self.current_loaded_models[oldest_model_name]
+                    self.token_embedding_override_states.pop(oldest_model_name, None)
                     
                     logger.info(f"Successfully unloaded {oldest_model_name} and freed all memory")
         
@@ -131,7 +269,9 @@ class ModelPool:
                 model = self.current_loaded_models.pop(model_name)
                 self.current_loaded_models[model_name] = model
                 
-            return self.current_loaded_models[model_name]
+            model = self.current_loaded_models[model_name]
+            self._apply_token_embedding_override(model_name, model)
+            return model
 
     def list_models(self):
         """

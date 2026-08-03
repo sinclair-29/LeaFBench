@@ -30,4 +30,17 @@ class MyNewFingerprint(FingerprintInterface):
 - `fingerprint/fingerprint_interface.py`: Fingerprinting method interface definition
 - `fingerprint/fingerprint_factory.py`: Fingerprinting method registration and factory
 
+## PlugAE
+
+PlugAE uses the transferred-embedding protocol from Yang et al. (2025). It
+optimizes fingerprints only for `pretrained` candidate models, temporarily
+transfers each candidate embedding into derivatives declared by the benchmark
+configuration, and queries all suspects through their normal LeafBench
+generation path. Incompatible transfers are logged as `NaN` and excluded from
+aggregate metrics. Model checkpoints are never modified on disk.
+
+The query set in `data/plugae_questions.csv` is copied from the official
+MIT-licensed [ProFLingo repository](https://github.com/hengvt/ProFLingo),
+which PlugAE uses in its experiments.
+
 If you have any questions, please refer to the above files or contact the maintainer.

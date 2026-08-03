@@ -1,0 +1,24 @@
+max_loaded_models: 1
+offload_path: "cache/model_offload_plugae_smoke/"
+
+default_generation_params:
+  max_new_tokens: 64
+  temperature: 1.0
+  top_p: 1.0
+  top_k: 0
+  do_sample: true
+  max_input_length: 256
+
+models:
+  - model_family: Llama-2-7B
+    pretrained_model:
+      model_name: Llama-2-7B
+      model_path: /home/chj/LLMJailbreak/models/Llama-2-7b-hf
+    instruct_model:
+      model_name: Llama-2-7B-chat
+      model_path: /home/chj/LLMJailbreak/models/Llama-2-7b-chat-hf
+    predeployed_models: []
+
+training_data:
+  models: []
+  deploying_techniques: []

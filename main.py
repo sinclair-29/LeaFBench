@@ -67,12 +67,26 @@ if __name__ == "__main__":
     logger.info("Preparing fingerprint method...")
     fingerprint_method.prepare(train_models=benchmark.get_training_models())
 
-    # extracting fingerprints from all the models
-    # logger.info("Extracting fingerprints from models...")、
-# WHY: benchmark有哪些属性？
+    # Extract fingerprints from every model for symmetric methods, or from
+    # candidate models only for query-based asymmetric methods.
     all_models = benchmark.get_all_models()
+    if fingerprint_method.requires_suspect_fingerprints:
+        models_to_fingerprint = all_models
+    else:
+        candidate_types = set(fingerprint_method.candidate_model_types)
+        models_to_fingerprint = {
+            name: model for name, model in all_models.items()
+            if model.type in candidate_types
+        }
+
+    if not models_to_fingerprint:
+        raise ValueError(
+            f"No candidate models found for {args.fingerprint_method}; expected "
+            f"model types {fingerprint_method.candidate_model_types}."
+        )
+
     try:
-        for model_name, model in all_models.items():
+        for model_name, model in models_to_fingerprint.items():
             logger.info(f"Extracting fingerprint for model: {model_name}")
             if model.get_fingerprint() is not None:
                 logger.info(f"Fingerprint for {model_name} already exists, skipping...")

@@ -331,17 +331,23 @@ class Benchmark:
         logger = logging.getLogger(__name__)
         logger.info("Starting fingerprinting method evaluation...")
         
-        # Get all models and separate base models (pretrained + instruct)
+        # Get all models and select the candidate types required by the method.
         all_models = self.get_all_models()
-        
-        # Collect base models (pretrained and instruct models)
+        candidate_types = set(fingerprint_method.candidate_model_types)
+
         base_models = {}
         test_models = {}
         
         for model_name, model in all_models.items():
-            if model.type in ['pretrained', 'instruct']:
+            if model.type in candidate_types:
                 base_models[model_name] = model
             test_models[model_name] = model
+
+        if not base_models:
+            raise ValueError(
+                f"No candidate models found for {type(fingerprint_method).__name__}; "
+                f"expected model types {fingerprint_method.candidate_model_types}."
+            )
         
         logger.info(f"Found {len(base_models)} base models and {len(test_models)} test models")
         
@@ -496,6 +502,8 @@ class Benchmark:
             for test_name in similarity_matrix[base_name].keys():
                 similarity = similarity_matrix[base_name][test_name]
                 label = labels_matrix[base_name][test_name]
+                if not np.isfinite(similarity):
+                    continue
                 all_similarities.append(similarity)
                 all_labels.append(label)
         
@@ -503,6 +511,9 @@ class Benchmark:
         similarities = np.array(all_similarities)
         labels = np.array(all_labels)
         
+        if len(similarities) == 0:
+            return 0.5
+
         # Calculate optimal threshold using ROC curve
         if len(np.unique(labels)) > 1:  # Need both positive and negative samples
             fpr, tpr, thresholds = roc_curve(labels, similarities)
@@ -564,6 +575,8 @@ class Benchmark:
                     if model_name in similarity_matrix[base_name]:
                         similarity = similarity_matrix[base_name][model_name]
                         label = labels_matrix[base_name][model_name]
+                        if not np.isfinite(similarity):
+                            continue
                         
                         # Add to overall
                         group_metrics['overall']['similarities'].append(similarity)
@@ -621,6 +634,8 @@ class Benchmark:
             
             if base_name in similarity_matrix:
                 for test_name, similarity in similarity_matrix[base_name].items():
+                    if not np.isfinite(similarity):
+                        continue
                     similarities.append(similarity)
                     labels.append(labels_matrix[base_name][test_name])
             
@@ -710,6 +725,10 @@ class Benchmark:
             dict: Calculated metrics
         """
         
+        valid = np.isfinite(similarities)
+        similarities = similarities[valid]
+        labels = labels[valid]
+
         if len(np.unique(labels)) > 1:  # Need both positive and negative samples
             # Calculate AUC and ROC curve
             auc = roc_auc_score(labels, similarities)
@@ -816,6 +835,8 @@ class Benchmark:
             for test_name in similarity_matrix[base_name].keys():
                 similarity = similarity_matrix[base_name][test_name]
                 label = labels_matrix[base_name][test_name]
+                if not np.isfinite(similarity):
+                    continue
                 all_similarities.append(similarity)
                 all_labels.append(label)
         

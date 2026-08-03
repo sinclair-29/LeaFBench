@@ -1,0 +1,17 @@
+fingerprint_method: "plugae"
+fingerprint_type: "black-box"
+seed: 42
+
+cached_fingerprints_path: "cache/plugae/plugae_fingerprints.pth"
+re_fingerprinting: false
+
+# PlugAE settings from Yang et al. (2025).
+query_path: "data/plugae_questions.csv"
+num_queries: 50
+copyright_token: "mkahg"
+learning_rate: 0.1
+epochs: 30
+
+# Recommended for a 7B model on one NVIDIA A100 40GB.
+optimization_batch_size: 8
+generation_batch_size: 16
