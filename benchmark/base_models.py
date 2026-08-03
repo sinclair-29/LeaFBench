@@ -32,9 +32,11 @@ class BaseModel(ModelInterface):
             'pad_token_id': tokenizer.pad_token_id,
         }
 
+        rendered_prompts = self.render_prompts(prompts, tokenizer)
+
         # Tokenize input prompts
         inputs = tokenizer(
-            prompts, 
+            rendered_prompts,
             return_tensors='pt', 
             padding=True, 
             truncation=True,

@@ -57,7 +57,16 @@ class TRAPFingerprint(LLMFingerprintInterface):
         # only extract fingerprint if the model is pretrained or instruct model
         if model.model_name == model.pretrained_model or model.model_name == model.instruct_model:
             torch_model, tokenizer = model.load_model()
-            generated_prompts = generate_adversarial_suffix(torch_model, tokenizer, self.prompts, self.targets, self.gcg_config)
+            render_prompt = lambda prompt: model.render_prompts([prompt], tokenizer)[0]
+            generated_prompts = generate_adversarial_suffix(
+                torch_model,
+                tokenizer,
+                self.prompts,
+                self.targets,
+                self.gcg_config,
+                render_prompt,
+                max_input_length=(model.params or {}).get('max_input_length', 512),
+            )
             fingerprint = generated_prompts
             return fingerprint
         else:
@@ -129,4 +138,3 @@ class TRAPFingerprint(LLMFingerprintInterface):
         print(f"Overall similarity score: {similarity_score:.4f} ({total_matches}/{total_tests})")
         
         return similarity_score
-    

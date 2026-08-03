@@ -20,7 +20,7 @@ Ensure you have Python 3.8+ installed. Install required packages:
 pip install -r requirements.txt
 ```
 
-**Note**: The pip may indicate that `nanogcg` and `gptqmodel` are not compatible with the `transformers` version. Please ignore this warning. We use `nanogcg=0.3.0` and `gptqmodel=2.2.0`, and `transformers=4.54.1`.
+**Note**: The pip may indicate that `gptqmodel` is not compatible with the `transformers` version. Please ignore this warning. We use `gptqmodel=2.2.0` and `transformers=4.54.1`.
 
 ## Reproducing Experiments
 

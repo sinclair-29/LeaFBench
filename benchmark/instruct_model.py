@@ -8,6 +8,42 @@ class InstructModel(ModelInterface):
     """
     def __init__(self, config, model_pool=None, accelerator=None):
         super().__init__(config, model_pool=model_pool, accelerator=accelerator)
+
+    def render_prompts(self, prompts, tokenizer):
+        """Apply the same chat formatting used by generation and fingerprinting."""
+        system_prompt = self.params.get('system_prompt', None)
+        rendered_prompts = []
+
+        for prompt in prompts:
+            messages = []
+            if system_prompt is not None:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            if hasattr(tokenizer, 'apply_chat_template') and tokenizer.chat_template is not None:
+                try:
+                    formatted_prompt = tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True,
+                    )
+                except Exception:
+                    if system_prompt is not None:
+                        formatted_prompt = f"{system_prompt}\n\nUser: {prompt}\n\nAssistant:"
+                    else:
+                        formatted_prompt = f"User: {prompt}\n\nAssistant:"
+            elif system_prompt is not None:
+                formatted_prompt = f"{system_prompt}\n\nUser: {prompt}\n\nAssistant:"
+            else:
+                formatted_prompt = f"User: {prompt}\n\nAssistant:"
+
+            # Chat templates such as Llama-2's already start with a BOS token.
+            # The tokenizer adds that token again when the rendered text is encoded.
+            if tokenizer.bos_token and formatted_prompt.startswith(tokenizer.bos_token):
+                formatted_prompt = formatted_prompt[len(tokenizer.bos_token):]
+            rendered_prompts.append(formatted_prompt)
+
+        return rendered_prompts
     
     def generate(self, prompts, **kwargs):
         """
@@ -32,51 +68,11 @@ class InstructModel(ModelInterface):
             'pad_token_id': tokenizer.pad_token_id,
         }
 
-        # Prepare messages for chat template
-        system_prompt = self.params.get('system_prompt', None)
-        
-        # Convert prompts to chat format
-        chat_messages_list = []
-        for prompt in prompts:
-            messages = []
-            if system_prompt is not None:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
-            chat_messages_list.append(messages)
-        
-        # Apply chat template and tokenize
-        tokenized_prompts = []
-        for messages in chat_messages_list:
-            # Apply chat template with exception handling
-            if hasattr(tokenizer, 'apply_chat_template') and tokenizer.chat_template is not None:
-                try:
-                    formatted_prompt = tokenizer.apply_chat_template(
-                        messages, 
-                        tokenize=False, 
-                        add_generation_prompt=True
-                    )
-                except Exception as e:
-                    # If chat template fails (e.g., doesn't support system role), fallback to manual formatting
-                    if system_prompt is not None:
-                        formatted_prompt = f"{system_prompt}\n\nUser: {messages[-1]['content']}\n\nAssistant:"
-                    else:
-                        formatted_prompt = f"User: {messages[-1]['content']}\n\nAssistant:"
-            else:
-                # Fallback for models without chat template
-                if system_prompt is not None:
-                    formatted_prompt = f"{system_prompt}\n\nUser: {messages[-1]['content']}\n\nAssistant:"
-                else:
-                    formatted_prompt = f"User: {messages[-1]['content']}\n\nAssistant:"
-
-            # Chat templates such as Llama-2's already start with a BOS token.
-            # Remove it here because the tokenizer adds BOS again below.
-            if tokenizer.bos_token and formatted_prompt.startswith(tokenizer.bos_token):
-                formatted_prompt = formatted_prompt[len(tokenizer.bos_token):]
-            tokenized_prompts.append(formatted_prompt)
+        rendered_prompts = self.render_prompts(prompts, tokenizer)
         
         # Tokenize input prompts
         inputs = tokenizer(
-            tokenized_prompts, 
+            rendered_prompts,
             return_tensors='pt', 
             padding=True, 
             truncation=True,

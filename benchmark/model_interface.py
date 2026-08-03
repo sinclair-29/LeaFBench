@@ -31,6 +31,10 @@ class ModelInterface:
         # Get tokenizer from model pool as well
         tokenizer = self.model_pool.get_tokenizer(self.base_model)
         return model, tokenizer
+
+    def render_prompts(self, prompts, tokenizer):
+        """Render raw prompts exactly as this model expects before tokenization."""
+        return list(prompts)
     
     def generate(self, prompts, **kwargs):
         """
