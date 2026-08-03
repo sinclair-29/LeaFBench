@@ -76,16 +76,6 @@ class GCGOptimizer:
         self.instruction = None
         self.separator = None
 
-        # Decoding a boundary token in isolation can discard its leading space
-        # (notably with SentencePiece). Decode it after a stable ordinary token
-        # and remove that token's text to recover the actual control surface.
-        self.decode_prefix_ids = self._encode("A", add_special_tokens=False)
-        self.decode_prefix_text = self.tokenizer.decode(
-            self.decode_prefix_ids,
-            skip_special_tokens=False,
-            clean_up_tokenization_spaces=False,
-        )
-
     def _validate_config(self, config):
         integer_options = {
             "num_steps": self.num_steps,
@@ -138,14 +128,20 @@ class GCGOptimizer:
         return input_ids
 
     def _decode_control(self, control_ids):
-        decoded = self.tokenizer.decode(
-            self.decode_prefix_ids + control_ids.tolist(),
+        prefix_ids = self.before_ids[0].tolist()
+        prefix_text = self.tokenizer.decode(
+            prefix_ids,
             skip_special_tokens=False,
             clean_up_tokenization_spaces=False,
         )
-        if not decoded.startswith(self.decode_prefix_text):
+        decoded = self.tokenizer.decode(
+            prefix_ids + control_ids.tolist(),
+            skip_special_tokens=False,
+            clean_up_tokenization_spaces=False,
+        )
+        if not decoded.startswith(prefix_text):
             raise RuntimeError("Tokenizer could not decode the GCG suffix in context")
-        return decoded[len(self.decode_prefix_text):]
+        return decoded[len(prefix_text):]
 
     def _fingerprint_for_ids(self, control_ids):
         return self.instruction + self._decode_control(control_ids)
@@ -188,15 +184,60 @@ class GCGOptimizer:
             raise RuntimeError("Prompt renderer did not preserve the TRAP suffix marker")
         before_text, after_text = rendered_template.split(marker)
 
+        initial_control = self.separator + self.optim_str_init
+        fingerprint = instruction + initial_control
+        rendered_context = self.render_prompt(fingerprint)
+        expected_context = before_text + initial_control + after_text
+        if rendered_context != expected_context:
+            raise RuntimeError(
+                "Prompt renderer changed content while locating the GCG suffix"
+            )
+
+        try:
+            encoded_context = self.tokenizer(
+                rendered_context,
+                add_special_tokens=True,
+                return_offsets_mapping=True,
+            )
+            context_ids = encoded_context["input_ids"]
+            offsets = encoded_context["offset_mapping"]
+        except (KeyError, NotImplementedError, TypeError, ValueError) as error:
+            raise RuntimeError(
+                "TRAP GCG requires a fast tokenizer with offset mappings so the "
+                "optimization slice can be derived from the complete prompt"
+            ) from error
+
+        control_start = len(before_text)
+        control_end = control_start + len(initial_control)
+        control_token_indices = [
+            index
+            for index, (start, end) in enumerate(offsets)
+            if end > control_start and start < control_end
+        ]
+        if not control_token_indices:
+            raise RuntimeError("Tokenizer produced no tokens for the GCG suffix")
+        first_control = control_token_indices[0]
+        last_control = control_token_indices[-1] + 1
+        if control_token_indices != list(range(first_control, last_control)):
+            raise RuntimeError("GCG suffix tokens are not a contiguous prompt slice")
+
+        first_start = offsets[first_control][0]
+        last_end = offsets[last_control - 1][1]
+        if first_start < control_start or last_end > control_end:
+            raise RuntimeError(
+                "A tokenizer token crosses the fixed prompt/GCG suffix boundary"
+            )
+
         self.before_ids = torch.tensor(
-            [self._encode(before_text, add_special_tokens=True)],
+            [context_ids[:first_control]], device=self.device, dtype=torch.long
+        )
+        current_ids = torch.tensor(
+            [context_ids[first_control:last_control]],
             device=self.device,
             dtype=torch.long,
         )
         self.after_ids = torch.tensor(
-            [self._encode(after_text, add_special_tokens=False)],
-            device=self.device,
-            dtype=torch.long,
+            [context_ids[last_control:]], device=self.device, dtype=torch.long
         )
         target_text = " " + target if self.add_space_before_target else target
         self.target_ids = torch.tensor(
@@ -207,12 +248,6 @@ class GCGOptimizer:
         if self.target_ids.shape[1] == 0:
             raise ValueError("TRAP target must contain at least one token")
 
-        initial_control = self.separator + self.optim_str_init
-        current_ids = torch.tensor(
-            [self._encode(initial_control, add_special_tokens=False)],
-            device=self.device,
-            dtype=torch.long,
-        )
         if not self._is_losslessly_serializable(current_ids[0]):
             raise RuntimeError(
                 "The initial GCG suffix cannot be reconstructed as the exact prompt "
