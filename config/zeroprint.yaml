@@ -1,0 +1,38 @@
+# Reference ZeroPrint configuration using offline server resources.
+fingerprint_method: 'zeroprint'
+cached_fingerprints_path: 'cache/zeroprint/zeroprint_fingerprints.pth'
+re_fingerprinting: True
+fingerprint_type: 'black-box'
+seed: 1000
+
+query_csv_path: 'cache/zeroprint/zeroprint_query_samples.csv'
+n_samples: 2
+resample: False
+query_datasets:
+  - 'openai_humaneval'
+continuation_word_limit: 20
+minimum_qa_length: 15
+
+perturbed_queries_path: 'cache/zeroprint/zeroprint_perturbed_queries.csv'
+word_substitution_config:
+  word_vector_model: 'glove'
+  word_vector_cache_dir: '/home/chj/LLMJailbreak/models'
+  k_words_to_replace: 3
+  top_m_neighbors: 10
+  n_augmented_samples: 4
+  substitution_queries_path: 'cache/zeroprint/zeroprint_substitution_queries.csv'
+  max_workers: 50
+
+nltk_data_path: '/home/chj/LLMJailbreak/models/nltk_data'
+output_truncate_length: 0
+embedding_model_name: '/home/chj/LLMJailbreak/models/all-mpnet-base-v2'
+embedding_batch_size: 200
+embeddings_path: 'cache/zeroprint/zeroprint_embeddings.pth'
+
+generation_batch_size: 100
+num_repeats: 20
+
+gradient_estimation_method: 'jacobian'
+ridge_alpha: 0.001
+fingerprint_aggregation: 'mean'
+similarity_metric: 'correlation'

@@ -13,8 +13,9 @@ scikit-learn>=1.0.0
 
 # NLP specific
 sentence-transformers>=2.2.0
-nltk>=3.8.0
+nltk>=3.9.0
 tokenizers>=0.13.0
+gensim>=4.4.0
 
 # Model optimization
 peft>=0.4.0
