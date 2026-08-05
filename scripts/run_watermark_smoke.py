@@ -6,8 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any
+
+# When this file is executed directly, Python adds ``scripts/`` rather than the
+# repository root to sys.path.  Add the root so LeaFBench's top-level packages
+# are importable without requiring callers to set PYTHONPATH.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import yaml
 from transformers import set_seed
