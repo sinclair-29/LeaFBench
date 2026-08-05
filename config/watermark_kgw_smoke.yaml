@@ -1,0 +1,35 @@
+max_loaded_models: 1
+offload_path: cache/model_offload_watermark_smoke/
+
+default_generation_params:
+  max_input_length: 2048
+
+models:
+  - model_family: local-opt-1.3b
+    pretrained_model:
+      model_name: local-opt-1.3b
+      model_path: /path/to/local/opt-1.3b
+    instruct_model: null
+    predeployed_models: []
+
+deploying_techniques:
+  watermark:
+    - method: kgw
+      gamma: 0.25
+      delta: 2.0
+      hash_key: 15485863
+      z_threshold: 4.0
+      generation:
+        do_sample: true
+        temperature: 0.7
+        top_p: 1.0
+        top_k: 0
+        max_new_tokens: 200
+
+smoke:
+  seed: 1234
+  prompt_path: data/watermark/kgw_smoke.jsonl
+
+training_data:
+  models: []
+  deploying_techniques: []

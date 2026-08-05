@@ -1,0 +1,37 @@
+max_loaded_models: 1
+offload_path: cache/model_offload_watermark_smoke/
+
+default_generation_params:
+  max_input_length: 2048
+
+models:
+  - model_family: local-opt-1.3b
+    pretrained_model:
+      model_name: local-opt-1.3b
+      model_path: /path/to/local/opt-1.3b
+    instruct_model: null
+    predeployed_models: []
+
+deploying_techniques:
+  watermark:
+    - method: opt
+      gamma: 0.25
+      beta: 0.0
+      hash_key: 15485863
+      significance_level: 0.01
+      generation:
+        do_sample: true
+        temperature: 1.0
+        top_p: 1.0
+        top_k: 0
+        max_new_tokens: 30
+        min_new_tokens: 30
+        suppress_eos: true
+
+smoke:
+  seed: 1234
+  prompt_path: data/watermark/opt_smoke.jsonl
+
+training_data:
+  models: []
+  deploying_techniques: []

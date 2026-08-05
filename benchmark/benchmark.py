@@ -7,6 +7,7 @@ from benchmark.base_models import BaseModel
 from benchmark.instruct_model import InstructModel
 from benchmark.rag_models import RAGModel
 from benchmark.adversarial_models import InputParaphraseModel, OutputPerturbationModel
+from deploying_techniques.watermark.model import WatermarkedModel
 import logging
 import pandas as pd
 import numpy as np
@@ -154,7 +155,7 @@ class Benchmark:
         Load an instruct model from the model pool.
         """
         if instruct_model is None:
-            raise ValueError("Instruct model name must be specified.")
+            return None, None
         instruct_model_name = instruct_model.get("model_name", None)
         instruct_model_path = instruct_model.get("model_path", None)
         if instruct_model_name is not None and instruct_model_path is not None:
@@ -238,6 +239,43 @@ class Benchmark:
                 "model_path": instruct_model_path,
                 "params": {**default_generation_params, "cot_prompt": cot_prompt.get("template", None)}
             }, model_pool=self.modelpool, accelerator=self.accelerator)
+
+    def _load_watermark_model(self, watermark_configs=None, model_family_name=None,
+                              pretrained_model_name=None, instruct_model_name=None,
+                              default_generation_params=None):
+        """Register native watermark wrappers over the existing instruct model."""
+        source_model_name = instruct_model_name or pretrained_model_name
+        if source_model_name is None or source_model_name not in self.models:
+            raise ValueError("A pretrained or instruct model must exist before applying a watermark.")
+
+        for index, watermark_config in enumerate(watermark_configs or []):
+            method = watermark_config.get("method", watermark_config.get("watermark_type"))
+            if method is None:
+                raise ValueError("Each watermark configuration requires a method.")
+            variant_suffix = ""
+            if method == "morphmark":
+                variant_suffix = f"_{watermark_config.get('variant', 'exp')}"
+            model_name = f"{source_model_name}_watermark_{method}{variant_suffix}_{index}"
+            generation_params = {
+                **(default_generation_params or {}),
+                **watermark_config.get("generation", {}),
+            }
+            self.models[model_name] = WatermarkedModel(
+                {
+                    "model_family": model_family_name,
+                    "pretrained_model": pretrained_model_name,
+                    "instruct_model": instruct_model_name,
+                    "base_model": source_model_name,
+                    "model_name": model_name,
+                    "model_path": self.models[source_model_name].model_path,
+                    "type": "watermark",
+                    "params": generation_params,
+                    "watermark": watermark_config,
+                },
+                source_model=self.models[source_model_name],
+                model_pool=self.modelpool,
+                accelerator=self.accelerator,
+            )
 
     def _load_sampling_model(self, sampling_configs=None, model_family_name=None, pretrained_model_name=None,
                              instruct_model_name=None, instruct_model_path=None):
