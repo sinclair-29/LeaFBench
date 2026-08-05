@@ -19,6 +19,7 @@ class WatermarkedModel(ModelInterface):
         self.source_model = source_model
         self.watermark_config = WatermarkConfig.from_mapping(config["watermark"])
         self.last_generation: list[dict[str, Any]] = []
+        self.last_unwatermarked_generation: list[dict[str, Any]] = []
 
     def render_prompts(self, prompts, tokenizer):
         return self.source_model.render_prompts(prompts, tokenizer)
@@ -84,6 +85,8 @@ class WatermarkedModel(ModelInterface):
             )
         if apply_watermark:
             self.last_generation = generation_records
+        else:
+            self.last_unwatermarked_generation = generation_records
         return generated_texts
 
     def generate(self, prompts: Sequence[str], **kwargs) -> list[str]:
@@ -98,14 +101,22 @@ class WatermarkedModel(ModelInterface):
         detector = WatermarkDetector(self.watermark_config, vocab_size, self._device(model))
         output_list = list(outputs)
         cached_texts = [record["text"] for record in self.last_generation]
+        cached_unwatermarked_texts = [
+            record["text"] for record in self.last_unwatermarked_generation
+        ]
+        cached_records = None
         if output_list == cached_texts:
+            cached_records = self.last_generation
+        elif output_list == cached_unwatermarked_texts:
+            cached_records = self.last_unwatermarked_generation
+        if cached_records is not None:
             terminal_ids = {
                 token_id
                 for token_id in (tokenizer.eos_token_id, tokenizer.pad_token_id)
                 if token_id is not None
             }
             results = []
-            for record in self.last_generation:
+            for record in cached_records:
                 generated_ids = list(record["generated_ids"])
                 while generated_ids and generated_ids[-1] in terminal_ids:
                     generated_ids.pop()

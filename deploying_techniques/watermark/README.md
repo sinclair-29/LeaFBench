@@ -13,7 +13,7 @@ dataset pipelines.
 ## Offline smoke tests
 
 Each smoke configuration points to a committed five-record JSONL corpus under
-`data/watermark/` and to LeaFBench's existing local Llama-2-7B base checkpoint.
+`data/watermark/` and to LeaFBench's existing local Llama-2-7B-chat checkpoint.
 No model or dataset download is performed:
 
 ```bash
@@ -32,7 +32,8 @@ first download OPT-1.3B to local storage and pass its real directory with
 `--model-path /real/local/path/to/opt-1.3b`.
 
 The runner resets the RNG before matched unwatermarked and watermarked
-generation. It prints detector statistics for every sample and fails only for
+generation. It applies the same detector to both controls, prints their z-scores
+side by side, and stores both detection records. It fails only for
 integration errors, empty generations, or invalid detector statistics. A
 detection-threshold miss does not fail the smoke test.
 

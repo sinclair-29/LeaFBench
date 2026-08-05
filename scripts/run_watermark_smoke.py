@@ -96,19 +96,25 @@ def main() -> None:
     baseline_outputs = watermarked_model.generate_unwatermarked(prompts)
     set_seed(seed)
     watermarked_outputs = watermarked_model.generate(prompts)
-    detections = watermarked_model.detect(watermarked_outputs)
+    baseline_detections = watermarked_model.detect(baseline_outputs)
+    watermarked_detections = watermarked_model.detect(watermarked_outputs)
 
     output_stream = None
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         output_stream = args.output.open("w", encoding="utf-8")
     try:
-        for record, baseline, watermarked, detection in zip(
-            records, baseline_outputs, watermarked_outputs, detections
+        for record, baseline, watermarked, baseline_detection, watermarked_detection in zip(
+            records,
+            baseline_outputs,
+            watermarked_outputs,
+            baseline_detections,
+            watermarked_detections,
         ):
             if not baseline.strip() or not watermarked.strip():
                 raise RuntimeError(f"Empty generation for {record['id']}")
-            validate_detection(detection)
+            validate_detection(baseline_detection)
+            validate_detection(watermarked_detection)
             result = {
                 "id": record["id"],
                 "source_index": record["source_index"],
@@ -117,13 +123,19 @@ def main() -> None:
                 "natural_text": record["natural_text"],
                 "unwatermarked_text": baseline,
                 "watermarked_text": watermarked,
-                "detection": detection,
+                "unwatermarked_detection": baseline_detection,
+                "watermarked_detection": watermarked_detection,
+                # Backward-compatible alias for consumers of the first smoke format.
+                "detection": watermarked_detection,
             }
             print(
-                f"{record['id']}: tokens={detection['num_tokens_scored']} "
-                f"green={detection['green_fraction']:.4f} "
-                f"z={detection['z_score']:.4f} p={detection['p_value']:.4g} "
-                f"detected={detection['is_watermarked']}"
+                f"{record['id']}: "
+                f"unwm_tokens={baseline_detection['num_tokens_scored']} "
+                f"unwm_z={baseline_detection['z_score']:.4f} "
+                f"unwm_detected={baseline_detection['is_watermarked']} | "
+                f"wm_tokens={watermarked_detection['num_tokens_scored']} "
+                f"wm_z={watermarked_detection['z_score']:.4f} "
+                f"wm_detected={watermarked_detection['is_watermarked']}"
             )
             if output_stream is not None:
                 output_stream.write(json.dumps(result, ensure_ascii=False) + "\n")
@@ -131,8 +143,17 @@ def main() -> None:
         if output_stream is not None:
             output_stream.close()
 
-    detected = sum(bool(result["is_watermarked"]) for result in detections)
-    print(f"summary: method={method} samples={len(records)} detected={detected}/{len(records)}")
+    baseline_detected = sum(
+        bool(result["is_watermarked"]) for result in baseline_detections
+    )
+    watermarked_detected = sum(
+        bool(result["is_watermarked"]) for result in watermarked_detections
+    )
+    print(
+        f"summary: method={method} samples={len(records)} "
+        f"unwatermarked_detected={baseline_detected}/{len(records)} "
+        f"watermarked_detected={watermarked_detected}/{len(records)}"
+    )
 
 
 if __name__ == "__main__":

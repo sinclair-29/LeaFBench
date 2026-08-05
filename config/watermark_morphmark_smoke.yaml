@@ -5,12 +5,12 @@ default_generation_params:
   max_input_length: 2048
 
 models:
-  # Existing local base model used only for offline integration smoke testing.
+  # Existing local chat model used only for offline integration smoke testing.
   # Override with a downloaded OPT-1.3B path for paper-faithful reproduction.
-  - model_family: local-llama-2-7b
+  - model_family: local-llama-2-7b-chat
     pretrained_model:
-      model_name: local-llama-2-7b
-      model_path: /home/chj/LLMJailbreak/models/Llama-2-7b-hf
+      model_name: local-llama-2-7b-chat
+      model_path: /home/chj/LLMJailbreak/models/Llama-2-7b-chat-hf
     instruct_model: null
     predeployed_models: []
 
