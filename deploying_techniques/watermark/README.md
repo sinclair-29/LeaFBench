@@ -13,21 +13,23 @@ dataset pipelines.
 ## Offline smoke tests
 
 Each smoke configuration points to a committed five-record JSONL corpus under
-`data/watermark/`. Edit its `model_path`, or override it at the command line:
+`data/watermark/` and to LeaFBench's existing local Llama-2-7B base checkpoint.
+No model or dataset download is performed:
 
 ```bash
 python scripts/run_watermark_smoke.py \
-  --config config/watermark_kgw_smoke.yaml \
-  --model-path /absolute/path/to/opt-1.3b
+  --config config/watermark_kgw_smoke.yaml
 
 python scripts/run_watermark_smoke.py \
-  --config config/watermark_opt_smoke.yaml \
-  --model-path /absolute/path/to/opt-1.3b
+  --config config/watermark_opt_smoke.yaml
 
 python scripts/run_watermark_smoke.py \
-  --config config/watermark_morphmark_smoke.yaml \
-  --model-path /absolute/path/to/opt-1.3b
+  --config config/watermark_morphmark_smoke.yaml
 ```
+
+The smoke backbone only validates integration. To reproduce the paper setup,
+first download OPT-1.3B to local storage and pass its real directory with
+`--model-path /real/local/path/to/opt-1.3b`.
 
 The runner resets the RNG before matched unwatermarked and watermarked
 generation. It prints detector statistics for every sample and fails only for
