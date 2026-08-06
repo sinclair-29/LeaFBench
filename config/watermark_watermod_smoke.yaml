@@ -1,0 +1,37 @@
+max_loaded_models: 1
+offload_path: cache/model_offload_watermark_smoke/
+
+default_generation_params:
+  max_input_length: 2048
+
+models:
+  - model_family: local-llama-2-7b-chat
+    pretrained_model:
+      model_name: local-llama-2-7b-chat
+      model_path: /home/chj/LLMJailbreak/models/Llama-2-7b-chat-hf
+    instruct_model: null
+    predeployed_models: []
+
+deploying_techniques:
+  watermark:
+    - method: watermod
+      delta: 1.0
+      entropy_type: shannon
+      H_scale: 1.2
+      prefix_length: 1
+      z_threshold: 4.0
+      hash_key: 15485863
+      f_scheme: time
+      tau: 1.0
+      generation:
+        temperature: 0.0
+        do_sample: false
+        max_new_tokens: 64
+
+smoke:
+  seed: 1234
+  prompt_path: data/watermark/watermod_smoke.jsonl
+
+training_data:
+  models: []
+  deploying_techniques: []

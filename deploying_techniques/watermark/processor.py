@@ -46,6 +46,75 @@ class Greenlist:
         return permutation[: int(self.config.gamma * self.vocab_size)]
 
 
+class WaterModUtils:
+    """Official zero_bit/SAM entropy gate, PRF, parity split, and z-score."""
+
+    def __init__(self, config: WatermarkConfig, vocab_size: int):
+        if config.method != "watermod":
+            raise ValueError("WaterModUtils requires method='watermod'")
+        self.config = config
+        self.vocab_size = int(vocab_size)
+
+    def seed(self, prefix: Sequence[int] | torch.Tensor) -> int:
+        values = torch.as_tensor(prefix, dtype=torch.long).flatten()
+        window = values[-self.config.prefix_length :]
+        if window.numel() < self.config.prefix_length:
+            raise ValueError("Not enough prefix tokens for WaterMod's configured prefix_length")
+        if self.config.f_scheme == "additive":
+            return int(window.sum())
+        if self.config.f_scheme == "time":
+            return int(torch.prod(window))
+        if self.config.f_scheme == "skip":
+            return int(window[0].item())
+        return int(window.min())
+
+    def hash_to_uniform(self, seed: int) -> float:
+        # The released SAM implementation deliberately uses a CPU generator,
+        # independent of the model device and global RNG state.
+        generator = torch.Generator(device="cpu")
+        generator.manual_seed(seed ^ self.config.hash_key)
+        return float(torch.rand((), generator=generator))
+
+    def odd_probability(self, logits: torch.Tensor) -> float:
+        probabilities = torch.softmax(logits.float(), dim=-1)
+        if self.config.entropy_type == "shannon":
+            entropy = float(
+                -(probabilities * torch.log(probabilities + 1e-12)).sum()
+            )
+            # Official SAM mixes natural-log entropy with a base-2 maximum.
+            # This is retained intentionally as the executable baseline.
+            maximum_entropy = math.log2(self.vocab_size)
+        else:
+            tau = self.config.tau
+            entropy = float((probabilities / (1.0 + tau * probabilities)).sum())
+            maximum_entropy = 1.0 / (1.0 + (tau / self.vocab_size))
+        normalized = entropy / maximum_entropy
+        return min(1.0, max(0.0, normalized**self.config.H_scale))
+
+    def green_parity(self, logits: torch.Tensor, prefix: Sequence[int] | torch.Tensor) -> int:
+        probability = self.odd_probability(logits)
+        uniform = self.hash_to_uniform(self.seed(prefix))
+        # Clear zero-based semantics equivalent to official SAM's inverted
+        # group label combined with its one-based rank expression.
+        return 1 if uniform < probability else 0
+
+    def green_ids(
+        self,
+        logits: torch.Tensor,
+        prefix: Sequence[int] | torch.Tensor,
+    ) -> torch.Tensor:
+        parity = self.green_parity(logits, prefix)
+        ranked_ids = torch.argsort(logits, descending=True)
+        zero_based_ranks = torch.arange(len(ranked_ids), device=ranked_ids.device)
+        return ranked_ids[zero_based_ranks % 2 == parity]
+
+    @staticmethod
+    def z_score(green_count: int, num_scored: int) -> float:
+        if num_scored <= 0:
+            return 0.0
+        return (green_count - (0.5 * num_scored)) / math.sqrt(0.25 * num_scored)
+
+
 def green_mask(vocab_size: int, green_ids: torch.Tensor, device: torch.device) -> torch.Tensor:
     mask = torch.zeros(vocab_size, dtype=torch.bool, device=device)
     mask[green_ids] = True
@@ -102,13 +171,14 @@ def apply_morphmark(
 
 
 class WatermarkLogitsProcessor(LogitsProcessor):
-    """One Hugging Face logits processor for all three transferred methods."""
+    """One Hugging Face logits processor for LeaFBench watermark methods."""
 
     def __init__(self, config: WatermarkConfig, vocab_size: int):
         config.validate()
         self.config = config
         self.vocab_size = int(vocab_size)
         self._greenlists: dict[tuple[int, str], Greenlist] = {}
+        self._watermod_utils: dict[int, WaterModUtils] = {}
         self.step_metadata: list[list[dict[str, float | int | bool | str]]] = []
 
     def _greenlist(self, vocab_size: int, device: torch.device) -> Greenlist:
@@ -117,12 +187,38 @@ class WatermarkLogitsProcessor(LogitsProcessor):
             self._greenlists[key] = Greenlist(self.config, vocab_size, device)
         return self._greenlists[key]
 
+    def _watermod(self, vocab_size: int) -> WaterModUtils:
+        if vocab_size not in self._watermod_utils:
+            self._watermod_utils[vocab_size] = WaterModUtils(self.config, vocab_size)
+        return self._watermod_utils[vocab_size]
+
     def _apply_row(
         self,
         prefix: Sequence[int],
         logits: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, float | int | bool | str]]:
         vocab_size = min(self.vocab_size, logits.shape[-1])
+        if self.config.method == "watermod":
+            utility = self._watermod(vocab_size)
+            seed = utility.seed(prefix)
+            probability = utility.odd_probability(logits)
+            uniform = utility.hash_to_uniform(seed)
+            green_parity = 1 if uniform < probability else 0
+            ranked_ids = torch.argsort(logits, descending=True)
+            ranks = torch.arange(len(ranked_ids), device=ranked_ids.device)
+            green_ids = ranked_ids[ranks % 2 == green_parity]
+            result = logits.clone()
+            result[green_ids] += self.config.delta
+            return result, {
+                "method": self.config.method,
+                "seed": seed,
+                "uniform": uniform,
+                "odd_probability": probability,
+                "green_parity": green_parity,
+                "greenlist_size": int(green_ids.numel()),
+                "applied": True,
+            }
+
         utility = self._greenlist(vocab_size, logits.device)
         ids = utility.ids(prefix)
         mask = green_mask(logits.shape[-1], ids, logits.device)
@@ -154,7 +250,8 @@ class WatermarkLogitsProcessor(LogitsProcessor):
         return result.to(logits.dtype), info
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        if input_ids.shape[-1] < 1:
+        required_prefix = self.config.prefix_length if self.config.method == "watermod" else 1
+        if input_ids.shape[-1] < required_prefix:
             return scores
         output = scores.clone()
         batch_metadata = []

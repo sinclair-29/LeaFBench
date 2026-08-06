@@ -28,15 +28,21 @@ class WatermarkedModel(ModelInterface):
         return self.accelerator.device if self.accelerator is not None else model.device
 
     def _generation_params(self, tokenizer, overrides: dict[str, Any]) -> dict[str, Any]:
+        do_sample = self.params.get("do_sample", True)
         params = {
             "max_new_tokens": self.params.get("max_new_tokens", 200),
-            "do_sample": self.params.get("do_sample", True),
-            "temperature": self.params.get("temperature", 1.0),
-            "top_p": self.params.get("top_p", 1.0),
-            "top_k": self.params.get("top_k", 0),
+            "do_sample": do_sample,
             "num_beams": self.params.get("num_beams", 1),
             "pad_token_id": tokenizer.pad_token_id,
         }
+        if do_sample:
+            params.update(
+                {
+                    "temperature": self.params.get("temperature", 1.0),
+                    "top_p": self.params.get("top_p", 1.0),
+                    "top_k": self.params.get("top_k", 0),
+                }
+            )
         for optional in ("min_new_tokens", "min_length", "no_repeat_ngram_size"):
             if optional in self.params:
                 params[optional] = self.params[optional]
@@ -98,7 +104,12 @@ class WatermarkedModel(ModelInterface):
     def detect(self, outputs: Sequence[str]) -> list[dict[str, Any]]:
         model, tokenizer = self.load_model()
         vocab_size = min(len(tokenizer), int(model.config.vocab_size))
-        detector = WatermarkDetector(self.watermark_config, vocab_size, self._device(model))
+        detector = WatermarkDetector(
+            self.watermark_config,
+            vocab_size,
+            self._device(model),
+            model=model,
+        )
         output_list = list(outputs)
         cached_texts = [record["text"] for record in self.last_generation]
         cached_unwatermarked_texts = [

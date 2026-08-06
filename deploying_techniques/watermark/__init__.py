@@ -1,4 +1,4 @@
-"""Native KGW, OPT, and MorphMark embedding/extraction support."""
+"""Native KGW, OPT, MorphMark, and WaterMod embedding/extraction support."""
 
 from deploying_techniques.watermark.config import WatermarkConfig
 from deploying_techniques.watermark.detector import WatermarkDetector

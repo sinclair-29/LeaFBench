@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=Path("data/watermark"),
-        help="Directory receiving kgw.jsonl, opt.jsonl, and morphmark.jsonl.",
+        help="Directory receiving the method-specific watermark smoke corpora.",
     )
     parser.add_argument("--num-records", type=int, default=DEFAULT_NUM_RECORDS)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
@@ -166,6 +166,7 @@ PREPARERS: dict[
     "kgw": ("kgw_smoke.jsonl", "completion_length", prepare_kgw),
     "opt": ("opt_smoke.jsonl", "opt_250_400", prepare_opt),
     "morphmark": ("morphmark_smoke.jsonl", "first_30_tokens", prepare_morphmark),
+    "watermod": ("watermod_smoke.jsonl", "completion_length", prepare_kgw),
 }
 
 

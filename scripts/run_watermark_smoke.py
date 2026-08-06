@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run five matched unwatermarked/watermarked generations from an offline corpus."""
+"""Run matched unwatermarked/watermarked generations from an offline corpus."""
 
 from __future__ import annotations
 
