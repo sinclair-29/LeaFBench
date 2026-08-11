@@ -2,13 +2,18 @@
 
 set -Eeuo pipefail
 
-PROJECT_ROOT="${LEAFBENCH_ROOT:-/raid/chj/fingerprint}"
+PROJECT_ROOT="${LEAFBENCH_ROOT:-/raid/chj/fingerprint/LeaFBench}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 RESULTS_ROOT="${RESULTS_ROOT:-${PROJECT_ROOT}/results/v100_validation}"
 LOG_ROOT="${LOG_ROOT:-${PROJECT_ROOT}/logs/v100_validation}"
 BENCHMARK_CONFIG="config/v100/benchmark_local_validation.yaml"
+MODEL_ROOT="/raid/chj/fingerprint/models"
 
 cd "${PROJECT_ROOT}"
+export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+export NLTK_DATA="${MODEL_ROOT}/nltk_data"
+export GENSIM_DATA_DIR="${MODEL_ROOT}"
+export CUBLAS_WORKSPACE_CONFIG="${CUBLAS_WORKSPACE_CONFIG:-:4096:8}"
 bash scripts/v100/preflight.sh
 mkdir -p "${RESULTS_ROOT}" "${LOG_ROOT}"
 
@@ -102,8 +107,11 @@ for index in "${!pids[@]}"; do
   fi
 done
 
-if (( failed )); then
-  exit 1
+validation_failed=0
+if ! bash scripts/v100/validate_results.sh "${RESULTS_ROOT}"; then
+  validation_failed=1
 fi
 
-bash scripts/v100/validate_results.sh "${RESULTS_ROOT}"
+if (( failed || validation_failed )); then
+  exit 1
+fi

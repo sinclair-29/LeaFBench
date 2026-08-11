@@ -4,7 +4,7 @@ import os
 import torch
 import torch.nn as nn
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel
-from peft import AutoPeftModelForCausalLM
+from peft import PeftModel
 from gptqmodel.nn_modules.qlinear.torch import BaseQuantLinear, TorchQuantLinear
 from gptqmodel import BACKEND, GPTQModel
 from accelerate import disk_offload, dispatch_model, infer_auto_device_map
@@ -218,10 +218,24 @@ class ModelPool:
         
                 # Load the new model
                 if type == "adapter":
-                    model = AutoPeftModelForCausalLM.from_pretrained(
-                        self.model_paths[model_name], 
-                        device_map="balanced", 
-                        torch_dtype=torch.float16
+                    # Load adapters on the benchmark's explicitly registered
+                    # local base checkpoint. AutoPeftModel otherwise follows
+                    # base_model_name_or_path from adapter_config.json (usually
+                    # a Hugging Face ID), which breaks fully offline evaluation
+                    # even when the same base model already exists locally.
+                    base_model_path = self.tokenizer_paths.get(model_name)
+                    if not base_model_path:
+                        raise ValueError(
+                            f"Adapter {model_name} has no registered local base model."
+                        )
+                    base_model = AutoModelForCausalLM.from_pretrained(
+                        base_model_path,
+                        device_map="balanced",
+                        torch_dtype=torch.float16,
+                    )
+                    model = PeftModel.from_pretrained(
+                        base_model,
+                        self.model_paths[model_name],
                     )
                     model = model.merge_and_unload()
                     for param in model.parameters():

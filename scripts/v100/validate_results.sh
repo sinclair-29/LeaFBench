@@ -2,11 +2,12 @@
 
 set -Eeuo pipefail
 
-PROJECT_ROOT="${LEAFBENCH_ROOT:-/raid/chj/fingerprint}"
+PROJECT_ROOT="${LEAFBENCH_ROOT:-/raid/chj/fingerprint/LeaFBench}"
 RESULTS_ROOT="${1:-${RESULTS_ROOT:-${PROJECT_ROOT}/results/v100_validation}}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 cd "${PROJECT_ROOT}"
+export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 "${PYTHON_BIN}" - "${RESULTS_ROOT}" <<'PY'
 import json

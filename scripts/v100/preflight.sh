@@ -2,11 +2,14 @@
 
 set -Eeuo pipefail
 
-PROJECT_ROOT="${LEAFBENCH_ROOT:-/raid/chj/fingerprint}"
+PROJECT_ROOT="${LEAFBENCH_ROOT:-/raid/chj/fingerprint/LeaFBench}"
 MODEL_ROOT="/raid/chj/fingerprint/models"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 cd "${PROJECT_ROOT}"
+export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+export NLTK_DATA="${MODEL_ROOT}/nltk_data"
+export GENSIM_DATA_DIR="${MODEL_ROOT}"
 
 required_paths=(
   "${MODEL_ROOT}/Qwen2.5-7B"
@@ -43,6 +46,7 @@ fi
 from pathlib import Path
 import yaml
 import torch
+import gensim.downloader as gensim_api
 
 from fingerprint.fingerprint_factory import create_fingerprint_method
 
@@ -65,6 +69,10 @@ assert torch.cuda.device_count() == 16, (
     f"Expected 16 visible CUDA devices, found {torch.cuda.device_count()}"
 )
 print(f"PyTorch {torch.__version__}, CUDA devices: {torch.cuda.device_count()}")
+assert Path(gensim_api.BASE_DIR).resolve() == Path("/raid/chj/fingerprint/models").resolve(), (
+    f"Gensim cache mismatch: {gensim_api.BASE_DIR}"
+)
+print(f"Gensim cache: {gensim_api.BASE_DIR}")
 PY
 
 "${PYTHON_BIN}" -m unittest tests.test_evaluation

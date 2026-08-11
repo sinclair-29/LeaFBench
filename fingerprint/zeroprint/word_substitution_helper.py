@@ -85,7 +85,9 @@ class WordSubstitutionHelper:
         self.logger.info(f"Loading word vector model: {self.word_vector_model}")
 
         if self.word_vector_cache_dir:
-            cache_dir = os.path.expanduser(self.word_vector_cache_dir)
+            cache_dir = os.path.abspath(
+                os.path.expanduser(self.word_vector_cache_dir)
+            )
             model_names = {
                 'glove': 'glove-wiki-gigaword-100',
                 'word2vec': 'word2vec-google-news-300',
@@ -97,6 +99,11 @@ class WordSubstitutionHelper:
                     f"Missing offline word-vector resource: {model_dir}. "
                     "Transfer the complete Gensim downloader cache before running ZeroPrint."
                 )
+            # Gensim's downloaded dataset loader consults GENSIM_DATA_DIR
+            # independently of downloader.BASE_DIR. Keep both in sync with the
+            # explicit LeaFBench configuration so callers never need to export
+            # an environment variable before running ZeroPrint.
+            os.environ['GENSIM_DATA_DIR'] = cache_dir
             api.BASE_DIR = cache_dir
         
         try:

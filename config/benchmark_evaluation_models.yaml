@@ -73,7 +73,7 @@ models:
     predeployed_models:
       - model_name: Llama-2-7B-Chat-DPO
         model_path: Joyqiuyue/Llama-2-7b-chat-hf-dpo
-        type: finetune
+        type: adapter
       - model_name: Llama-2-7B-MedQuAD
         model_path: EdwardYu/llama-2-7b-MedQuAD
         type: adapter
