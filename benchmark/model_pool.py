@@ -21,6 +21,7 @@ class ModelPool:
         # self.models = {}  # {model_name: model_instance}
         self.tokenizers = OrderedDict()  # {model_name: tokenizer_instance}
         self.model_paths = OrderedDict()  # {model_name: model_path}
+        self.tokenizer_paths = OrderedDict()  # adapters may not bundle a tokenizer
         self.accelerator = accelerator
         self.current_loaded_models = OrderedDict()  # {model_name: model_instance}
         self.max_loaded_models = max_loaded_models
@@ -33,11 +34,12 @@ class ModelPool:
         self.token_embedding_overrides = {}
         self.token_embedding_override_states = {}
 
-    def register_model(self, model_name, model_path):
+    def register_model(self, model_name, model_path, tokenizer_path=None):
         """
         Register the model path, but do not load the model.
         """
         self.model_paths[model_name] = model_path
+        self.tokenizer_paths[model_name] = tokenizer_path or model_path
         # with init_empty_weights():
         # self.models[model_name] = AutoModelForCausalLM.from_pretrained(model_path) if model_path else None
         # tokenizer = AutoTokenizer.from_pretrained(model_path) if model_path else None
@@ -51,7 +53,8 @@ class ModelPool:
         """
         Get the tokenizer for the specified model, load it on demand and cache it.
         """
-        tokenizer = AutoTokenizer.from_pretrained(self.model_paths[model_name]) if self.model_paths[model_name] else None
+        tokenizer_path = self.tokenizer_paths[model_name]
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path) if tokenizer_path else None
         override = self.token_embedding_overrides.get(model_name)
         if override is not None:
             added = tokenizer.add_tokens([override["token"]])
@@ -76,7 +79,7 @@ class ModelPool:
             self.clear_token_embedding_override(model_name)
 
         try:
-            tokenizer = AutoTokenizer.from_pretrained(self.model_paths[model_name])
+            tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_paths[model_name])
             added = tokenizer.add_tokens([token])
             token_ids = tokenizer.encode(token, add_special_tokens=False)
         except Exception as exc:

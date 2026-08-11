@@ -23,16 +23,39 @@ class BaseModel(ModelInterface):
         model, tokenizer = self.load_model()
         
         # Default generation parameters
+        params = self.params or {}
+        prompts_are_rendered = kwargs.pop('prompts_are_rendered', False)
         generation_params = {
-            'max_new_tokens': self.params.get('max_new_tokens', 512),
-            'temperature': self.params.get('temperature', 0.7),
-            'do_sample': self.params.get('do_sample', True),
-            'top_p': self.params.get('top_p', 0.9),
-            'top_k': self.params.get('top_k', 50),
+            'max_new_tokens': params.get('max_new_tokens', 512),
+            'temperature': params.get('temperature', 0.7),
+            'do_sample': params.get('do_sample', True),
+            'top_p': params.get('top_p', 0.9),
+            'top_k': params.get('top_k', 50),
             'pad_token_id': tokenizer.pad_token_id,
         }
 
-        rendered_prompts = self.render_prompts(prompts, tokenizer)
+        supported_overrides = {
+            'max_new_tokens', 'temperature', 'do_sample', 'top_p', 'top_k',
+            'num_beams', 'repetition_penalty', 'use_cache',
+        }
+        unknown = set(kwargs) - supported_overrides
+        if unknown:
+            names = ', '.join(sorted(unknown))
+            raise ValueError(f"Unsupported generation option(s): {names}")
+        generation_params.update(kwargs)
+
+        # Sampling-only parameters are meaningless for greedy decoding and can
+        # trigger warnings (or errors in stricter Transformers versions).
+        if not generation_params['do_sample']:
+            generation_params.pop('temperature', None)
+            generation_params.pop('top_p', None)
+            generation_params.pop('top_k', None)
+
+        rendered_prompts = (
+            list(prompts)
+            if prompts_are_rendered
+            else self.render_prompts(prompts, tokenizer)
+        )
 
         # Tokenize input prompts
         inputs = tokenizer(
@@ -40,7 +63,7 @@ class BaseModel(ModelInterface):
             return_tensors='pt', 
             padding=True, 
             truncation=True,
-            max_length=self.params.get('max_input_length', 512),
+            max_length=params.get('max_input_length', 512),
             padding_side='left'
         )
 

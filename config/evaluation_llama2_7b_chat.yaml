@@ -1,0 +1,94 @@
+source_model:
+  alias: llama2
+  model_name: Llama-2-7B-Chat
+
+model_groups:
+  original:
+    - model_name: Llama-2-7B-Chat
+  derivatives:
+    - model_name: Llama-2-7B-Chat-DPO
+      modification_type: preference_tuning
+    - model_name: Llama-2-7B-MedQuAD
+      modification_type: adapter
+    - model_name: Llama-2-7B-SFT-LoRA
+      modification_type: adapter
+    - model_name: Llama-2-7B-AG
+      modification_type: adapter
+  negatives:
+    - model_name: Qwen2.5-7B-Instruct
+      negative_type: unrelated
+    - model_name: Mistral-7B-Instruct-v0.3
+      negative_type: unrelated
+    - model_name: Gemma-2-2B-IT
+      negative_type: unrelated
+    - model_name: Yi-6B-Chat
+      negative_type: unrelated
+    - model_name: Llama-2-7B
+      negative_type: family_related_hard
+    - model_name: Llama-3.1-8B-Instruct
+      negative_type: family_related_hard
+    - model_name: Llama-2-13B-Chat
+      negative_type: scale_variant
+
+evaluations:
+  model_modification_robustness:
+    enabled: true
+    generation:
+      input_mode: source_rendered
+      do_sample: false
+      temperature: 0.0
+      top_p: 1.0
+      seed: 0
+      max_new_tokens: 64
+
+  deployment_robustness:
+    enabled: true
+    generation:
+      do_sample: false
+      temperature: 0.0
+      top_p: 1.0
+      max_new_tokens: 64
+    system_prompts:
+      - id: default
+        prompt: null
+      - id: openai_style
+        prompt: You are a helpful assistant.
+      - id: fastchat_style
+        prompt: A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions.
+      - id: llama2_style
+        prompt: You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe. Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.
+      - id: json_formatter
+        prompt: You are a data formatting specialist. Always respond with valid, well-formatted JSON. Ensure proper syntax, quote handling, and structure.
+      - id: customer_support
+        prompt: You are a helpful customer service representative. Address customer concerns professionally, offer solutions, and maintain a friendly, patient demeanor.
+    sampling:
+      seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      generation:
+        max_new_tokens: 64
+      temperature_values: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
+      temperature_top_p: 1.0
+      top_p_values: [1.0, 0.9]
+      top_p_temperature: 0.7
+
+  model_specificity:
+    enabled: true
+    seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    generation:
+      input_mode: model_rendered
+      do_sample: true
+      temperature: 0.7
+      top_p: 1.0
+      max_new_tokens: 64
+
+  prompt_stealthiness:
+    enabled: true
+    reference_model: gpt2
+    max_length: 1024
+    calibration:
+      dataset: cais/mmlu
+      subset: all
+      split: test
+      column: question
+      sample_size: 1000
+      seed: 0
+      quantile: 0.999

@@ -7,9 +7,13 @@ import re
 import torch
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
+from transformers import set_seed
 
 from benchmark.model_pool import TokenEmbeddingOverrideError
-from fingerprint.fingerprint_interface import LLMFingerprintInterface
+from fingerprint.fingerprint_interface import (
+    FingerprintTestResult,
+    LLMFingerprintInterface,
+)
 
 
 PROFLINGO_TEMPLATES = (
@@ -32,6 +36,12 @@ class PlugAEFingerprint(LLMFingerprintInterface):
 
     requires_suspect_fingerprints = False
     candidate_model_types = ("pretrained",)
+    evaluation_capabilities = {
+        "model_modification_robustness": True,
+        "deployment_robustness": {"system_prompts": True, "sampling": True},
+        "model_specificity": True,
+        "prompt_stealthiness": True,
+    }
 
     def __init__(self, config=None, accelerator=None):
         super().__init__(config=config or {}, accelerator=accelerator)
@@ -242,6 +252,144 @@ class PlugAEFingerprint(LLMFingerprintInterface):
             len(self.keywords),
         )
         return score
+
+    def fingerprint_to_records(self, fingerprint, source_model, experiment_id):
+        if not isinstance(fingerprint, dict) or "embedding" not in fingerprint:
+            raise ValueError("PlugAE fingerprint must contain an embedding.")
+        payload = {
+            "kind": "plugae",
+            "embedding": fingerprint["embedding"].detach().cpu().tolist(),
+            "copyright_token": fingerprint["copyright_token"],
+            "query_sha256": fingerprint["query_sha256"],
+            "queries": list(self.queries),
+            "targets": list(self.targets),
+            "keywords": list(self.keywords),
+            "source_model": fingerprint.get("source_model", source_model.model_name),
+            "optimization": fingerprint.get("optimization", {}),
+        }
+        return [self._record(experiment_id, 1, source_model, payload)]
+
+    def fingerprint_from_records(self, records):
+        if len(records) != 1 or records[0]["payload"].get("kind") != "plugae":
+            raise ValueError("PlugAE batches must contain exactly one embedding artifact.")
+        payload = records[0]["payload"]
+        self._restore_evaluation_queries(payload)
+        return {
+            "embedding": torch.tensor(payload["embedding"]),
+            "copyright_token": payload["copyright_token"],
+            "query_sha256": payload["query_sha256"],
+            "source_model": payload.get("source_model"),
+            "optimization": payload.get("optimization", {}),
+        }
+
+    def prepare_evaluation(self, records, train_models=None):
+        del train_models
+        if len(records) != 1 or records[0].get("payload", {}).get("kind") != "plugae":
+            raise ValueError("PlugAE evaluation requires one embedding artifact.")
+        self._restore_evaluation_queries(records[0]["payload"])
+
+    def _restore_evaluation_queries(self, payload):
+        queries = payload.get("queries")
+        targets = payload.get("targets")
+        keywords = payload.get("keywords")
+        if not all(isinstance(values, list) for values in (queries, targets, keywords)):
+            raise ValueError("PlugAE artifact does not contain its evaluation query set.")
+        if not queries or not (len(queries) == len(targets) == len(keywords)):
+            raise ValueError("PlugAE artifact query, target, and keyword counts differ.")
+        query_payload = "\n".join(
+            "\0".join((question, target, keyword))
+            for question, target, keyword in zip(queries, targets, keywords)
+        )
+        query_sha256 = hashlib.sha256(query_payload.encode("utf-8")).hexdigest()
+        if query_sha256 != payload.get("query_sha256"):
+            raise ValueError("PlugAE artifact query hash is invalid.")
+        self.queries = queries
+        self.targets = targets
+        self.keywords = keywords
+        self.query_sha256 = query_sha256
+
+    def verify_fingerprint(self, source_model, testing_model, generation=None):
+        fingerprint = source_model.get_fingerprint()
+        if not isinstance(fingerprint, dict) or "embedding" not in fingerprint:
+            raise ValueError(f"Missing PlugAE fingerprint for {source_model.model_name}.")
+        if fingerprint.get("query_sha256") != self.query_sha256:
+            raise ValueError(
+                "Saved PlugAE fingerprint was generated from a different query set."
+            )
+        if fingerprint.get("copyright_token") != self.copyright_token:
+            raise ValueError(
+                "Saved PlugAE fingerprint uses a different copyright token."
+            )
+        generation = dict(generation or {})
+        seed = int(generation.pop("seed", 0))
+        generation.pop("input_mode", None)
+        set_seed(seed)
+
+        prompts = [
+            f"{fingerprint['copyright_token']} simply answer: {question}"
+            for question in self.queries
+        ]
+        is_derivative = testing_model.pretrained_model == source_model.model_name
+        override_name = testing_model.base_model
+        override_registered = False
+        try:
+            if is_derivative:
+                testing_model.model_pool.register_token_embedding_override(
+                    override_name,
+                    fingerprint["copyright_token"],
+                    fingerprint["embedding"],
+                )
+                override_registered = True
+            outputs = []
+            for start in range(0, len(prompts), self.generation_batch_size):
+                outputs.extend(
+                    testing_model.generate(
+                        prompts[start : start + self.generation_batch_size],
+                        **generation,
+                    )
+                )
+        finally:
+            if override_registered:
+                testing_model.model_pool.clear_token_embedding_override(override_name)
+
+        trials = []
+        for index, (question, keyword, output) in enumerate(
+            zip(self.queries, self.keywords, outputs), start=1
+        ):
+            success = self._keyword_matches(output, keyword)
+            trials.append(
+                {
+                    "query_index": index,
+                    "question": question,
+                    "keyword": keyword,
+                    "output": output,
+                    "success": int(success),
+                    "invalid": 0,
+                    "seed": seed,
+                }
+            )
+        rate = sum(item["success"] for item in trials) / len(trials) if trials else 0.0
+        return FingerprintTestResult(
+            score=rate,
+            metrics={
+                "keyword_hit_rate": rate,
+                "transfer_response_rate": rate,
+                "invalid_rate": 0.0,
+            },
+            trials=trials,
+            metadata={"seed": seed, "embedding_transferred": is_derivative},
+        )
+
+    def stealth_texts(self, records):
+        del records
+        return [
+            {
+                "fingerprint_id": f"query:{index:03d}",
+                "kind": "trigger_prompt",
+                "text": f"{self.copyright_token} simply answer: {question}",
+            }
+            for index, question in enumerate(self.queries, start=1)
+        ]
 
     def _initialize_embedding(self, embedding_weights):
         weights = embedding_weights.detach().float()

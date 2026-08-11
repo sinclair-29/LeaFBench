@@ -2,6 +2,8 @@ from fingerprint.fingerprint_interface import LLMFingerprintInterface
 from fingerprint.zeroprint.zeroprint_prepare_helper import ZeroPrintPrepareHelper
 from fingerprint.zeroprint.zeroprint_fingerprint_helper import ZeroPrintFingerprintHelper
 import logging
+import hashlib
+import json
 import torch
 from sentence_transformers import SentenceTransformer, util
 import numpy as np
@@ -13,6 +15,13 @@ class ZeroPrintFingerprint(LLMFingerprintInterface):
     """
     ZeroPrint Fingerprinting implementation based on zero-order gradient estimation.
     """
+
+    evaluation_capabilities = {
+        "model_modification_robustness": True,
+        "deployment_robustness": {"system_prompts": True, "sampling": True},
+        "model_specificity": True,
+        "prompt_stealthiness": True,
+    }
 
     def __init__(self, config=None, accelerator=None):
         super().__init__(config, accelerator)
@@ -709,3 +718,56 @@ class ZeroPrintFingerprint(LLMFingerprintInterface):
         print(f"Fingerprint similarity: {final_similarity:.6f}")
         
         return final_similarity
+
+    def fingerprint_to_records(self, fingerprint, source_model, experiment_id):
+        records = super().fingerprint_to_records(
+            fingerprint, source_model, experiment_id
+        )
+        query_state_sha256 = self._query_state_sha256()
+        for record in records:
+            record["metadata"].update(
+                {
+                    "query_state_sha256": query_state_sha256,
+                    "query_count": len(self.get_all_queries()),
+                }
+            )
+        return records
+
+    def fingerprint_from_records(self, records):
+        hashes = {
+            record.get("metadata", {}).get("query_state_sha256")
+            for record in records
+        }
+        if len(hashes) != 1 or None in hashes:
+            raise ValueError("ZeroPrint artifacts lack a consistent query-state hash.")
+        if hashes != {self._query_state_sha256()}:
+            raise ValueError(
+                "ZeroPrint query state differs from the saved source fingerprint; "
+                "restore the original query cache instead of regenerating it."
+            )
+        return super().fingerprint_from_records(records)
+
+    def _query_state_sha256(self):
+        state = {
+            "original_queries": list(self.query_samples or []),
+            "perturbed_queries": self.perturbed_queries or [],
+            "all_queries": self.get_all_queries(),
+        }
+        encoded = json.dumps(
+            state,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def stealth_texts(self, records):
+        del records
+        return [
+            {
+                "fingerprint_id": f"query:{index:03d}",
+                "kind": "query",
+                "text": query,
+            }
+            for index, query in enumerate(self.query_samples or [], start=1)
+        ]

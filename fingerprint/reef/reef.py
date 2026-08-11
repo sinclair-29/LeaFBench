@@ -1,9 +1,18 @@
+import torch
+
 from fingerprint.fingerprint_interface import LLMFingerprintInterface
 from fingerprint.reef.generate_activation import load_statements, get_acts
 from fingerprint.reef.compute_cka import CKA
 
 
 class REEFFingerprint(LLMFingerprintInterface):
+    evaluation_capabilities = {
+        "model_modification_robustness": True,
+        "deployment_robustness": {"system_prompts": True, "sampling": False},
+        "model_specificity": True,
+        "prompt_stealthiness": False,
+    }
+
     def __init__(self, config=None, accelerator=None):
         super().__init__(config=config, accelerator=accelerator)
 
@@ -19,6 +28,14 @@ class REEFFingerprint(LLMFingerprintInterface):
         self.layers = self.config.get('layers', 18)
         self.statements = load_statements(dataset_path)[:num_samples]
         self.batch_size = self.config.get('batch_size', 1)
+
+    def prepare_evaluation(self, records, train_models=None):
+        del train_models
+        if not records:
+            raise ValueError("REEF evaluation requires saved activation artifacts.")
+        self.layers = self.config.get('layers', 18)
+        self.batch_size = self.config.get('batch_size', 1)
+        self.statements = [record["payload"]["statement"] for record in records]
     
     def get_fingerprint(self, model):
         """
@@ -31,11 +48,17 @@ class REEFFingerprint(LLMFingerprintInterface):
             torch.Tensor: The fingerprint tensor.
         """
         torch_model, tokenizer = model.load_model()
+        statements = model.render_prompts(self.statements, tokenizer)
+        device = (
+            self.accelerator.device
+            if self.accelerator is not None
+            else next(torch_model.parameters()).device
+        )
         fingerprint = get_acts(
-            self.statements, tokenizer, torch_model, 
+            statements, tokenizer, torch_model,
             model.model_family, 
             self.layers,
-            self.accelerator.device,
+            device,
             batch_size=self.batch_size
         )
         return fingerprint
@@ -52,11 +75,51 @@ class REEFFingerprint(LLMFingerprintInterface):
         Returns:
             float: Similarity score between the two fingerprints.
         """
-        cka = CKA(self.accelerator.device)
+        device = (
+            self.accelerator.device
+            if self.accelerator is not None
+            else base_model.get_fingerprint().device
+        )
+        cka = CKA(device)
         base_fingerprint = base_model.get_fingerprint()
         print(f"Base fingerprint shape: {base_fingerprint.shape}")
         testing_fingerprint = testing_model.get_fingerprint()
-        base_fingerprint = base_fingerprint.to(self.accelerator.device)
-        testing_fingerprint = testing_fingerprint.to(self.accelerator.device)
+        base_fingerprint = base_fingerprint.to(device)
+        testing_fingerprint = testing_fingerprint.to(device)
         cka_value = cka.linear_CKA(base_fingerprint, testing_fingerprint)
         return cka_value.item()
+
+    def fingerprint_to_records(self, fingerprint, source_model, experiment_id):
+        tensor = fingerprint.detach().cpu()
+        if tensor.ndim != 2 or tensor.shape[0] != len(self.statements):
+            raise ValueError(
+                "REEF activations must have one matrix row per prepared statement."
+            )
+        return [
+            self._record(
+                experiment_id,
+                index,
+                source_model,
+                {
+                    "kind": "reef_activation",
+                    "statement": self.statements[index - 1],
+                    "values": row.tolist(),
+                    "layers": self.layers,
+                },
+            )
+            for index, row in enumerate(tensor, start=1)
+        ]
+
+    def fingerprint_from_records(self, records):
+        if not records or any(
+            record["payload"].get("kind") != "reef_activation"
+            for record in records
+        ):
+            raise ValueError("REEF batches must contain activation artifacts.")
+        layer_specs = {str(record["payload"].get("layers")) for record in records}
+        if len(layer_specs) != 1:
+            raise ValueError("REEF artifact layer specifications are inconsistent.")
+        self.statements = [record["payload"]["statement"] for record in records]
+        return torch.stack(
+            [torch.tensor(record["payload"]["values"]) for record in records]
+        )

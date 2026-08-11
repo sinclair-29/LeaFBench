@@ -66,6 +66,7 @@ def find_watermarked_model(benchmark: Benchmark):
 
 
 def validate_detection(result: dict[str, Any]) -> None:
+def validate_detection(result: dict[str, Any]) -> None:
     for key in ("z_score", "p_value", "green_fraction"):
         if key not in result or not math.isfinite(float(result[key])):
             raise RuntimeError(f"Detector returned invalid {key}: {result.get(key)!r}")

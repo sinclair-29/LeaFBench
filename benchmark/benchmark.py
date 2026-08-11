@@ -341,9 +341,25 @@ class Benchmark:
             predeployed_model_type = predeployed_model.get("type", None)
             if predeployed_model_name is not None and predeployed_model_path is not None:
                 # Register the model in the model pool
-                self.modelpool.register_model(predeployed_model_name, predeployed_model_path)
+                tokenizer_path = predeployed_model.get("tokenizer_path")
+                if tokenizer_path is None and predeployed_model_type == "adapter":
+                    tokenizer_path = self.modelpool.model_paths.get(instruct_model_name)
+                    if tokenizer_path is None:
+                        tokenizer_path = self.modelpool.model_paths.get(
+                            pretrained_model_name
+                        )
+                self.modelpool.register_model(
+                    predeployed_model_name,
+                    predeployed_model_path,
+                    tokenizer_path=tokenizer_path,
+                )
                 # Create a model instance and store it in the models dictionary
-                self.models[predeployed_model_name] = BaseModel({
+                prompt_format = predeployed_model.get(
+                    "prompt_format",
+                    "instruct" if instruct_model_name is not None else "pretrained",
+                )
+                model_class = InstructModel if prompt_format == "instruct" else BaseModel
+                self.models[predeployed_model_name] = model_class({
                     "model_family": model_family_name,
                     "pretrained_model": pretrained_model_name,
                     "instruct_model": instruct_model_name,

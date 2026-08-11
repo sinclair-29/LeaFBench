@@ -158,9 +158,24 @@ def get_acts(statements, tokenizer, model, model_name, layers, device, token_pos
             if hidden_states.dim() != 3:
                 raise ValueError(f"Expected 3D tensor [batch_size, seq_len, hidden_size], got shape {hidden_states.shape}")
             
-            # Extract activations at specified token position
-            # hidden_states shape: [batch_size, seq_len, hidden_size]
-            batch_acts = hidden_states[:, token_pos]  # [batch_size, hidden_size]
+            # For the default "last token" behavior, select the final
+            # non-padding token for each sequence. ``[:, -1]`` is incorrect
+            # with right padding and makes a batch-size change alter REEF.
+            if token_pos == -1 and "attention_mask" in batch_inputs:
+                token_indices = torch.arange(
+                    batch_inputs["attention_mask"].shape[1],
+                    device=hidden_states.device,
+                )
+                positions = (
+                    batch_inputs["attention_mask"].to(hidden_states.device)
+                    * token_indices.unsqueeze(0)
+                ).max(dim=1).values
+                row_indices = torch.arange(
+                    hidden_states.shape[0], device=hidden_states.device
+                )
+                batch_acts = hidden_states[row_indices, positions]
+            else:
+                batch_acts = hidden_states[:, token_pos]
             
             # Ensure we get the expected output shape
             if batch_acts.dim() != 2:
