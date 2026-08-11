@@ -1,0 +1,45 @@
+# Local-only model registry for DGX2-19 (/raid/chj/fingerprint/models).
+# Keep max_loaded_models at one: evaluation.py reloads suspects sequentially and
+# the four validation jobs are isolated by CUDA_VISIBLE_DEVICES.
+max_loaded_models: 1
+offload_path: cache/v100_validation/model_offload
+
+default_generation_params:
+  max_new_tokens: 24
+  temperature: 0.0
+  top_p: 1.0
+  top_k: 50
+  do_sample: false
+  max_input_length: 512
+
+models:
+  - model_family: Qwen2.5-7B
+    pretrained_model:
+      model_name: Qwen2.5-7B
+      model_path: /raid/chj/fingerprint/models/Qwen2.5-7B
+    instruct_model:
+      model_name: Qwen2.5-7B-Instruct
+      model_path: /raid/chj/fingerprint/models/Qwen2.5-7B-Instruct
+    predeployed_models: []
+
+  - model_family: Llama-2-7B
+    pretrained_model:
+      model_name: Llama-2-7B
+      model_path: /raid/chj/fingerprint/models/Llama-2-7b-hf
+    instruct_model:
+      model_name: Llama-2-7B-Chat
+      model_path: /raid/chj/fingerprint/models/Llama-2-7b-chat-hf
+    predeployed_models: []
+
+  - model_family: Mistral-7B-v0.3
+    pretrained_model:
+      model_name: Mistral-7B-v0.3
+      model_path: /raid/chj/fingerprint/models/Mistral-7B-v0.3
+    instruct_model:
+      model_name: Mistral-7B-Instruct-v0.3
+      model_path: /raid/chj/fingerprint/models/Mistral-7B-Instruct-v0.3
+    predeployed_models: []
+
+training_data:
+  models: []
+  deploying_techniques: []

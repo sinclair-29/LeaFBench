@@ -1,0 +1,71 @@
+# PlugAE embeds its source fingerprint in the pretrained model and transfers it
+# to the linked instruction-tuned checkpoint.
+source_model:
+  alias: qwen25_base_v100
+  model_name: Qwen2.5-7B
+
+model_groups:
+  original:
+    - model_name: Qwen2.5-7B
+  derivatives:
+    - model_name: Qwen2.5-7B-Instruct
+      modification_type: instruction_tuning
+  negatives:
+    - model_name: Llama-2-7B-Chat
+      negative_type: unrelated
+    - model_name: Mistral-7B-Instruct-v0.3
+      negative_type: unrelated
+
+evaluations:
+  model_modification_robustness:
+    enabled: true
+    generation:
+      input_mode: source_rendered
+      do_sample: false
+      temperature: 0.0
+      top_p: 1.0
+      seed: 0
+      max_new_tokens: 24
+
+  deployment_robustness:
+    enabled: true
+    model_name: Qwen2.5-7B-Instruct
+    generation:
+      do_sample: false
+      temperature: 0.0
+      top_p: 1.0
+      max_new_tokens: 24
+    system_prompts:
+      - id: default
+        prompt: null
+      - id: helpful
+        prompt: You are a helpful assistant.
+    sampling:
+      seeds: [0, 1]
+      generation:
+        max_new_tokens: 24
+      temperature_values: [0.0, 0.7]
+      temperature_top_p: 1.0
+      top_p_values: [0.9]
+      top_p_temperature: 0.7
+
+  model_specificity:
+    enabled: true
+    seeds: [0, 1]
+    generation:
+      input_mode: model_rendered
+      do_sample: true
+      temperature: 0.7
+      top_p: 1.0
+      max_new_tokens: 24
+
+  prompt_stealthiness:
+    enabled: true
+    reference_model: /raid/chj/fingerprint/models/TinyLlama-1.1B-Chat-v1.0
+    max_length: 256
+    calibration:
+      path: data/truthfulqa.csv
+      column: statement
+      sample_size: 8
+      seed: 0
+      quantile: 0.875

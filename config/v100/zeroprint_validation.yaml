@@ -1,0 +1,34 @@
+fingerprint_method: zeroprint
+fingerprint_type: black-box
+seed: 1000
+cached_fingerprints_path: cache/v100_validation/zeroprint/fingerprints.pth
+re_fingerprinting: true
+
+query_csv_path: data/zeroprint_smoke_queries.csv
+n_samples: 2
+resample: false
+query_datasets: [openai_humaneval]
+continuation_word_limit: 20
+minimum_qa_length: 15
+
+perturbed_queries_path: cache/v100_validation/zeroprint/perturbed_queries.csv
+word_substitution_config:
+  word_vector_model: glove
+  word_vector_cache_dir: /raid/chj/fingerprint/models
+  k_words_to_replace: 2
+  top_m_neighbors: 5
+  n_augmented_samples: 2
+  substitution_queries_path: cache/v100_validation/zeroprint/substitution_queries.csv
+  max_workers: 2
+
+nltk_data_path: /raid/chj/fingerprint/models/nltk_data
+output_truncate_length: 0
+embedding_model_name: /raid/chj/fingerprint/models/all-mpnet-base-v2
+embedding_batch_size: 8
+embeddings_path: cache/v100_validation/zeroprint/embeddings.pth
+generation_batch_size: 2
+num_repeats: 2
+gradient_estimation_method: jacobian
+ridge_alpha: 0.001
+fingerprint_aggregation: mean
+similarity_metric: correlation

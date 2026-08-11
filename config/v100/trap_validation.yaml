@@ -1,0 +1,23 @@
+fingerprint_method: trap
+fingerprint_type: black-box
+seed: 42
+cached_fingerprints_path: cache/v100_validation/trap/fingerprints.pth
+re_fingerprinting: true
+
+n_goals: 1
+string_type: number_simpletarget
+string_length: 3
+prompt_path: cache/v100_validation/trap/prompts.csv
+regenerate_prompts: true
+test_n_times: 2
+batch_size: 2
+
+gcg_config:
+  num_steps: 20
+  search_width: 32
+  batch_size: 32
+  topk: 32
+  n_replace: 1
+  seed: 40
+  use_prefix_cache: false
+  early_stop: false
