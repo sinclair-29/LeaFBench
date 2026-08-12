@@ -1,0 +1,66 @@
+source_model:
+  alias: qwen25_7b_instruct
+  model_name: Qwen2.5-7B-Instruct
+
+model_groups:
+  original:
+    - model_name: Qwen2.5-7B-Instruct
+  derivatives: []
+  negatives:
+    - {model_name: Qwen2.5-7B, negative_type: family_related_hard}
+    - {model_name: Qwen1.5-7B-Chat, negative_type: family_related_hard}
+    - {model_name: Qwen3-14B-Instruct, negative_type: family_related_hard}
+    - {model_name: Qwen2.5-14B-Instruct, negative_type: scale_variant}
+    - {model_name: Llama-2-7B-Chat, negative_type: unrelated}
+    - {model_name: Llama-3.1-8B-Instruct, negative_type: unrelated}
+    - {model_name: Mistral-7B-Instruct-v0.3, negative_type: unrelated}
+    - {model_name: Gemma-2-9B-IT, negative_type: unrelated}
+    - {model_name: Phi-3-Mini-4K-Instruct, negative_type: unrelated}
+
+evaluations:
+  # No same-checkpoint Qwen2.5 derivative is locally available. Similar model
+  # names must not be reported as fine-tuned descendants.
+  model_modification_robustness:
+    enabled: false
+
+  deployment_robustness:
+    enabled: true
+    generation: &greedy
+      do_sample: false
+      temperature: 0.0
+      top_p: 1.0
+      max_new_tokens: 48
+    system_prompts:
+      - {id: default, prompt: null}
+      - {id: helpful, prompt: "You are a helpful, accurate, and concise assistant."}
+      - {id: safety, prompt: "You are a helpful, respectful, and honest assistant. Refuse unsafe requests and avoid unsupported claims."}
+      - {id: json, prompt: "Return only valid JSON with no surrounding commentary."}
+      - {id: terse, prompt: "Answer as briefly as possible."}
+    sampling:
+      seeds: [0, 1, 2, 3, 4]
+      generation: {max_new_tokens: 48}
+      temperature_values: [0.0, 0.2, 0.5, 0.7, 1.0]
+      temperature_top_p: 1.0
+      top_p_values: [1.0, 0.95, 0.9, 0.8]
+      top_p_temperature: 0.7
+
+  model_specificity:
+    enabled: true
+    seeds: [0, 1, 2, 3, 4]
+    generation:
+      input_mode: model_rendered
+      do_sample: true
+      temperature: 0.7
+      top_p: 0.9
+      max_new_tokens: 48
+
+  prompt_stealthiness:
+    enabled: true
+    reference_model: /raid/chj/fingerprint/models/opt-1.3b
+    max_length: 512
+    calibration:
+      path: data/truthfulqa.csv
+      column: statement
+      sample_size: 1000
+      seed: 0
+      quantile: 0.99

@@ -1,0 +1,12 @@
+fingerprint_method: plugae
+fingerprint_type: black-box
+seed: 42
+cached_fingerprints_path: cache/v100_fingerprint_paper/plugae/seed_42.pth
+re_fingerprinting: true
+query_path: data/plugae_questions.csv
+num_queries: 50
+copyright_token: mkahg
+learning_rate: 0.1
+epochs: 30
+optimization_batch_size: 4
+generation_batch_size: 8

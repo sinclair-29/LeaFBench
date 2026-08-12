@@ -1,0 +1,29 @@
+source_model: {alias: llama2_7b_chat, model_name: Llama-2-7B-Chat}
+model_groups:
+  original: [{model_name: Llama-2-7B-Chat}]
+  derivatives: []
+  negatives:
+    - {model_name: Llama-2-7B, negative_type: family_related_hard}
+    - {model_name: CodeLlama-7B, negative_type: family_related_hard}
+    - {model_name: Llama-3.1-8B-Instruct, negative_type: family_related_hard}
+    - {model_name: Qwen2.5-7B-Instruct, negative_type: unrelated}
+    - {model_name: Qwen2.5-14B-Instruct, negative_type: unrelated}
+    - {model_name: Mistral-7B-Instruct-v0.3, negative_type: unrelated}
+    - {model_name: Gemma-2-9B-IT, negative_type: unrelated}
+    - {model_name: Phi-3-Mini-4K-Instruct, negative_type: unrelated}
+evaluations:
+  model_modification_robustness: {enabled: false}
+  deployment_robustness:
+    enabled: true
+    generation: {do_sample: false, temperature: 0.0, top_p: 1.0, max_new_tokens: 48}
+    system_prompts:
+      - {id: default, prompt: null}
+      - {id: helpful, prompt: "You are a helpful, accurate, and concise assistant."}
+      - {id: safety, prompt: "You are a helpful, respectful, and honest assistant. Refuse unsafe requests and avoid unsupported claims."}
+      - {id: json, prompt: "Return only valid JSON with no surrounding commentary."}
+      - {id: terse, prompt: "Answer as briefly as possible."}
+  model_specificity:
+    enabled: true
+    seeds: [0]
+    generation: {input_mode: model_rendered, do_sample: false, temperature: 0.0, top_p: 1.0, max_new_tokens: 48}
+  prompt_stealthiness: {enabled: true}

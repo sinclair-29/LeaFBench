@@ -24,6 +24,16 @@ class DummyMethod:
 
 
 class EvaluationUtilitiesTest(unittest.TestCase):
+    def test_generation_seed_controls_python_rng_used_by_fingerprint_preparation(self):
+        import random
+        import numpy as np
+
+        evaluation.seed_fingerprint_generation(17)
+        first = (random.random(), np.random.random())
+        evaluation.seed_fingerprint_generation(17)
+        second = (random.random(), np.random.random())
+        self.assertEqual(first, second)
+
     def test_variant_letters_round_trip(self):
         for number, variant in ((1, "a"), (26, "z"), (27, "aa"), (53, "ba")):
             self.assertEqual(evaluation.number_to_variant(number), variant)

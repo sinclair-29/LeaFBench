@@ -1,0 +1,13 @@
+fingerprint_method: trap
+fingerprint_type: black-box
+seed: 43
+cached_fingerprints_path: cache/v100_fingerprint_paper/trap/llama_seed_43.pth
+re_fingerprinting: true
+n_goals: 34
+string_type: number_simpletarget
+string_length: 6
+prompt_path: cache/v100_fingerprint_paper/trap/llama_prompts_seed_43.csv
+regenerate_prompts: true
+test_n_times: 1
+batch_size: 8
+gcg_config: {num_steps: 100, search_width: 128, batch_size: 64, topk: 128, n_replace: 1, seed: 43, use_prefix_cache: false, early_stop: false}

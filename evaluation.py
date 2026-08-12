@@ -20,6 +20,7 @@ import hashlib
 import json
 import math
 import os
+import random
 import re
 import shutil
 import sys
@@ -113,6 +114,24 @@ def read_json(path: Union[Path, str]) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"Expected a JSON object: {path}")
     return value
+
+
+def seed_fingerprint_generation(seed: int) -> None:
+    """Seed every RNG used by fingerprint preparation and optimization."""
+    seed = int(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        import torch
+        from transformers import set_seed
+    except ModuleNotFoundError:
+        # Configuration/unit-test environments may intentionally omit the GPU
+        # runtime. Real fingerprint generation imports both dependencies later
+        # and therefore still fails fast if the experiment environment is bad.
+        return
+    set_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def variant_to_number(value: str) -> int:
@@ -690,6 +709,25 @@ def run_specificity(
     for row in rows:
         row["predicted_positive"] = int(row["score"] >= threshold)
 
+    labels = np.asarray([row["label"] for row in rows], dtype=int)
+    scores = np.asarray([row["score"] for row in rows], dtype=float)
+    # AUC is threshold-free and is therefore the primary model-level
+    # specificity statistic. The Youden threshold remains a descriptive
+    # operating point and must not be presented as held-out performance.
+    pairwise_auc = float(
+        np.mean(
+            [
+                (positive > negative) + 0.5 * (positive == negative)
+                for positive in scores[labels == 1]
+                for negative in scores[labels == 0]
+            ]
+        )
+    )
+    source_score = next(
+        row["score"] for row in rows if row["evaluation_model"] == source_model.model_name
+    )
+    source_rank = 1 + sum(float(score) > source_score for score in scores)
+
     negative_rows = [row for row in rows if row["label"] == 0]
     type_summary = []
     for negative_type in sorted({row["negative_type"] for row in negative_rows}):
@@ -720,6 +758,11 @@ def run_specificity(
         },
         "models": rows,
         "summary": {
+            "roc_auc": pairwise_auc,
+            "source_score_rank": int(source_rank),
+            "source_score_margin_over_best_negative": float(
+                source_score - max(row["score"] for row in negative_rows)
+            ),
             "overall_model_fpr": float(
                 np.mean([row["predicted_positive"] for row in negative_rows])
             ),
@@ -1170,6 +1213,12 @@ def generate_batch(args: argparse.Namespace) -> int:
     fingerprint_config_path = Path(args.fingerprint_config).resolve()
     benchmark_config = load_yaml(benchmark_config_path)
     fingerprint_config = load_yaml(fingerprint_config_path)
+    # The optimization seed is part of the immutable experiment identity, so it
+    # must govern every RNG used before and during fingerprint construction.
+    # This covers Python-based TRAP target generation and ZeroPrint query/
+    # substitution sampling in addition to NumPy and Torch operations.
+    generation_seed = int(fingerprint_config["seed"])
+    seed_fingerprint_generation(generation_seed)
     source_model_name = args.source_model
     model_alias = args.model_alias or source_model_name
 

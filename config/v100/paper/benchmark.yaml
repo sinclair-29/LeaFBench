@@ -1,0 +1,107 @@
+# Paper-scale, local-only registry for DGX2-19. Every path below is present in
+# /raid/chj/fingerprint/models; no model watermark or remote checkpoint is used.
+max_loaded_models: 1
+offload_path: cache/v100_fingerprint_paper/model_offload
+
+default_generation_params:
+  max_new_tokens: 48
+  temperature: 0.0
+  top_p: 1.0
+  top_k: 50
+  do_sample: false
+  max_input_length: 1024
+
+models:
+  - model_family: Qwen2.5-7B
+    pretrained_model:
+      model_name: Qwen2.5-7B
+      model_path: /raid/chj/fingerprint/models/Qwen2.5-7B
+    instruct_model:
+      model_name: Qwen2.5-7B-Instruct
+      model_path: /raid/chj/fingerprint/models/Qwen2.5-7B-Instruct
+
+  - model_family: Qwen2.5-14B
+    pretrained_model:
+      model_name: Qwen2.5-14B
+      model_path: /raid/chj/fingerprint/models/Qwen2.5-14B
+    instruct_model:
+      model_name: Qwen2.5-14B-Instruct
+      model_path: /raid/chj/fingerprint/models/Qwen2.5-14B-Instruct
+
+  - model_family: Qwen1.5-7B
+    pretrained_model:
+      model_name: Qwen1.5-7B
+      model_path: /raid/chj/fingerprint/models/Qwen1.5-7B
+    instruct_model:
+      model_name: Qwen1.5-7B-Chat
+      model_path: /raid/chj/fingerprint/models/Qwen1.5-7B-Chat
+
+  - model_family: Qwen3-14B
+    pretrained_model:
+      model_name: Qwen3-14B-Instruct-Raw
+      model_path: /raid/chj/fingerprint/models/Qwen3-14B-Instruct
+    instruct_model:
+      model_name: Qwen3-14B-Instruct
+      model_path: /raid/chj/fingerprint/models/Qwen3-14B-Instruct
+
+  - model_family: Llama-2-7B
+    pretrained_model:
+      model_name: Llama-2-7B
+      model_path: /raid/chj/fingerprint/models/Llama-2-7b-hf
+    instruct_model:
+      model_name: Llama-2-7B-Chat
+      model_path: /raid/chj/fingerprint/models/Llama-2-7b-chat-hf
+
+  - model_family: CodeLlama-7B
+    pretrained_model:
+      model_name: CodeLlama-7B
+      model_path: /raid/chj/fingerprint/models/CodeLlama-7b-hf
+
+  - model_family: Llama-3.1-8B
+    pretrained_model:
+      model_name: Llama-3.1-8B
+      model_path: /raid/chj/fingerprint/models/Llama-3.1-8B
+    instruct_model:
+      model_name: Llama-3.1-8B-Instruct
+      model_path: /raid/chj/fingerprint/models/Llama-3.1-8B-Instruct
+
+  - model_family: Mistral-7B-v0.3
+    pretrained_model:
+      model_name: Mistral-7B-v0.3
+      model_path: /raid/chj/fingerprint/models/Mistral-7B-v0.3
+    instruct_model:
+      model_name: Mistral-7B-Instruct-v0.3
+      model_path: /raid/chj/fingerprint/models/Mistral-7B-Instruct-v0.3
+
+  - model_family: Gemma-2-2B
+    pretrained_model:
+      model_name: Gemma-2-2B
+      model_path: /raid/chj/fingerprint/models/gemma-2-2b
+    instruct_model:
+      model_name: Gemma-2-2B-IT
+      model_path: /raid/chj/fingerprint/models/gemma-2-2b-it
+
+  - model_family: Gemma-2-9B
+    pretrained_model:
+      model_name: Gemma-2-9B-IT-Raw
+      model_path: /raid/chj/fingerprint/models/gemma-2-9b-it
+    instruct_model:
+      model_name: Gemma-2-9B-IT
+      model_path: /raid/chj/fingerprint/models/gemma-2-9b-it
+
+  - model_family: Phi-3-Mini
+    pretrained_model:
+      model_name: Phi-3-Mini-4K-Base
+      model_path: /raid/chj/fingerprint/models/Phi-3-mini-4k-base
+    instruct_model:
+      model_name: Phi-3-Mini-4K-Instruct
+      model_path: /raid/chj/fingerprint/models/Phi-3-mini-4k-instruct
+
+  - model_family: Baichuan2-7B
+    pretrained_model:
+      model_name: Baichuan2-7B-Base
+      model_path: /raid/chj/fingerprint/models/Baichuan2-7B-Base
+
+training_data:
+  models: []
+  deploying_techniques: []

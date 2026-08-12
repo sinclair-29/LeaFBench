@@ -1,0 +1,9 @@
+fingerprint_method: reef
+fingerprint_type: white-box
+seed: 42
+cached_fingerprints_path: cache/v100_fingerprint_paper/reef/seed_42.pth
+re_fingerprinting: true
+dataset_path: data/truthfulqa.csv
+num_samples: 200
+layers: last-6
+batch_size: 4

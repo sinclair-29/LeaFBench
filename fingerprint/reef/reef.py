@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 from fingerprint.fingerprint_interface import LLMFingerprintInterface
 from fingerprint.reef.generate_activation import load_statements, get_acts
@@ -26,7 +27,15 @@ class REEFFingerprint(LLMFingerprintInterface):
         dataset_path = self.config.get('dataset_path', None)
         num_samples = self.config.get('num_samples', 200)
         self.layers = self.config.get('layers', 18)
-        self.statements = load_statements(dataset_path)[:num_samples]
+        statements = load_statements(dataset_path)
+        if num_samples > len(statements):
+            raise ValueError(
+                f"REEF requested {num_samples} statements but only "
+                f"{len(statements)} are available."
+            )
+        rng = np.random.default_rng(int(self.config.get('seed', 42)))
+        indices = rng.choice(len(statements), size=num_samples, replace=False)
+        self.statements = [statements[index] for index in indices]
         self.batch_size = self.config.get('batch_size', 1)
 
     def prepare_evaluation(self, records, train_models=None):
