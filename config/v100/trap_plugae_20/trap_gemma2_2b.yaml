@@ -1,15 +1,15 @@
 fingerprint_method: trap
 fingerprint_type: black-box
 seed: 42
-cached_fingerprints_path: cache/v100_fingerprint_paper/trap/guanaco_shard_2.pth
+cached_fingerprints_path: cache/v100_trap_plugae_20/trap/gemma2_2b.pth
 re_fingerprinting: true
-n_goals: 100
-goal_offset: 67
-goal_count: 33
+n_goals: 20
+goal_offset: 0
+goal_count: 20
 prompt_seed: 41
-string_type: number
+string_type: number_simpletarget
 string_length: 4
-prompt_path: cache/v100_fingerprint_paper/trap/guanaco_prompts_target_seed_41_shard_2.csv
+prompt_path: cache/v100_trap_plugae_20/trap/gemma2_2b_targets.csv
 regenerate_prompts: true
 test_n_times: 10
 batch_size: 8
@@ -19,6 +19,7 @@ gcg_config:
   batch_size: 512
   topk: 256
   n_replace: 1
+  optim_str_init: "! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !"
   seed: 42
   use_prefix_cache: false
   early_stop: false

@@ -1,4 +1,4 @@
-from fingerprint.fingerprint_interface import LLMFingerprintInterface
+from fingerprint.fingerprint_interface import FingerprintTestResult, LLMFingerprintInterface
 from fingerprint.zeroprint.zeroprint_prepare_helper import ZeroPrintPrepareHelper
 from fingerprint.zeroprint.zeroprint_fingerprint_helper import ZeroPrintFingerprintHelper
 import logging
@@ -272,6 +272,7 @@ class ZeroPrintFingerprint(LLMFingerprintInterface):
         """
         batch_size = self.config.get('generation_batch_size', 10)
         num_repeats = self.config.get('num_repeats', 1)
+        generation = dict(self.config.get('model_generation', {}))
         
         # Get truncate_length from config if not provided
         if truncate_length is None:
@@ -294,7 +295,7 @@ class ZeroPrintFingerprint(LLMFingerprintInterface):
             batch_queries = expanded_queries[i:i + batch_size]
             
             with torch.no_grad():
-                batch_outputs = model.generate(batch_queries)
+                batch_outputs = model.generate(batch_queries, **generation)
             
             # Apply truncation if specified
             if truncate_length and truncate_length > 0:
@@ -718,6 +719,18 @@ class ZeroPrintFingerprint(LLMFingerprintInterface):
         print(f"Fingerprint similarity: {final_similarity:.6f}")
         
         return final_similarity
+
+    def verify_fingerprint(self, source_model, testing_model, generation=None):
+        # The source artifact already consumed exactly 200 model calls. Re-querying
+        # it during specificity would silently double its budget and compare two
+        # different Monte-Carlo estimates. Its self-similarity is definitionally 1.
+        if source_model is testing_model:
+            return FingerprintTestResult(
+                score=1.0,
+                metrics={"similarity": 1.0},
+                metadata={"source_artifact_reused": True, "model_calls": 0},
+            )
+        return super().verify_fingerprint(source_model, testing_model, generation)
 
     def fingerprint_to_records(self, fingerprint, source_model, experiment_id):
         records = super().fingerprint_to_records(

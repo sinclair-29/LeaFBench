@@ -1,0 +1,25 @@
+source_model: {alias: qwen25_7b, model_name: Qwen2.5-7B}
+model_groups:
+  original: [{model_name: Qwen2.5-7B}]
+  derivatives:
+    - {model_name: Qwen2.5-7B-Instruct, modification_type: instruction_tuning}
+  negatives:
+    - {model_name: Qwen1.5-7B, negative_type: family_related_hard}
+    - {model_name: Llama-2-7B, negative_type: unrelated}
+    - {model_name: Mistral-7B-v0.1, negative_type: unrelated}
+    - {model_name: Gemma-2-2B, negative_type: unrelated}
+evaluations: &evaluations
+  model_modification_robustness: {enabled: false}
+  deployment_robustness:
+    enabled: true
+    sampling:
+      seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      generation: {max_new_tokens: 8}
+      temperature_values: [0.7]
+      temperature_top_p: 0.9
+      top_p_values: []
+  model_specificity:
+    enabled: true
+    seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    generation: {do_sample: false, temperature: 0.0, top_p: 1.0, max_new_tokens: 8}
+  prompt_stealthiness: {enabled: false}

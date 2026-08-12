@@ -29,9 +29,19 @@ class CKA(object):
         return torch.sum(self.centering(self.rbf(X, sigma)) * self.centering(self.rbf(Y, sigma)))
 
     def linear_HSIC(self, X, Y):
+        # The released REEF implementation centers and standardizes every
+        # activation feature before constructing the linear kernels.
+        X = self.standardize_features(X)
+        Y = self.standardize_features(Y)
         L_X = torch.matmul(X, X.T)
         L_Y = torch.matmul(Y, Y.T)
         return torch.sum(self.centering(L_X) * self.centering(L_Y))
+
+    @staticmethod
+    def standardize_features(X):
+        centered = X - X.mean(dim=0, keepdim=True)
+        scale = X.std(dim=0, keepdim=True, unbiased=True)
+        return centered / scale.clamp_min(torch.finfo(X.dtype).eps)
 
     def linear_CKA(self, X, Y):
         hsic = self.linear_HSIC(X, Y)

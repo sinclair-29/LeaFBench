@@ -1,21 +1,25 @@
 fingerprint_method: trap
 fingerprint_type: black-box
-seed: 43
-cached_fingerprints_path: cache/v100_fingerprint_paper/trap/seed_43.pth
+seed: 42
+cached_fingerprints_path: cache/v100_fingerprint_paper/trap/guanaco_shard_1.pth
 re_fingerprinting: true
-n_goals: 34
-string_type: number_simpletarget
-string_length: 6
-prompt_path: cache/v100_fingerprint_paper/trap/qwen_prompts_seed_43.csv
+n_goals: 100
+goal_offset: 34
+goal_count: 33
+prompt_seed: 41
+string_type: number
+string_length: 4
+prompt_path: cache/v100_fingerprint_paper/trap/guanaco_prompts_target_seed_41_shard_1.csv
 regenerate_prompts: true
-test_n_times: 1
+test_n_times: 10
 batch_size: 8
 gcg_config:
-  num_steps: 100
-  search_width: 128
-  batch_size: 64
-  topk: 128
+  num_steps: 1500
+  search_width: 512
+  batch_size: 512
+  topk: 256
   n_replace: 1
-  seed: 43
+  seed: 42
   use_prefix_cache: false
   early_stop: false
+  filter_words_path: data/filter_words_number.csv

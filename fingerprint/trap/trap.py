@@ -7,6 +7,7 @@ from fingerprint.fingerprint_interface import (
     LLMFingerprintInterface,
 )
 import os
+import random
 import pandas as pd
 import re
 from fingerprint.trap.generate_prompts import generate_csv, generate_adversarial_suffix
@@ -20,6 +21,8 @@ class TRAPFingerprint(LLMFingerprintInterface):
     TRAP Fingerprint Class
     """
 
+    candidate_model_types = ("pretrained", "instruct", "instruction_tuning")
+
     evaluation_capabilities = {
         "model_modification_robustness": True,
         "deployment_robustness": {"system_prompts": True, "sampling": True},
@@ -30,6 +33,9 @@ class TRAPFingerprint(LLMFingerprintInterface):
     def __init__(self, config=None, accelerator=None):
         super().__init__(config=config, accelerator=accelerator)
         self.n_goals = self.config.get('n_goals', 100)
+        self.goal_offset = self.config.get('goal_offset', 0)
+        self.goal_count = self.config.get('goal_count')
+        self.prompt_seed = self.config.get('prompt_seed', self.config.get('seed', 42))
         self.string_type = self.config.get('string_type', 'number')
         self.string_length = self.config.get('string_length', 3)
         self.prompt_path = self.config.get('prompt_path', None)
@@ -50,7 +56,12 @@ class TRAPFingerprint(LLMFingerprintInterface):
         if os.path.exists(self.prompt_path) and not self.config.get('regenerate_prompts', False):
             df = pd.read_csv(self.prompt_path, dtype={'prompt': str, 'target': str, 'string_target': str})
         else:
+            random.seed(self.prompt_seed)
             df = generate_csv(self.n_goals, self.string_type, self.string_length, self.prompt_path)
+        end = None if self.goal_count is None else self.goal_offset + self.goal_count
+        df = df.iloc[self.goal_offset:end]
+        if df.empty:
+            raise ValueError("TRAP goal shard is empty")
         self.prompts = df['prompt'].tolist()
         self.targets = df['target'].tolist()
         self.string_target = df['string_target'].tolist()

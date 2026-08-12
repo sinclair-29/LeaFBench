@@ -1,0 +1,12 @@
+fingerprint_method: plugae
+fingerprint_type: black-box
+seed: 42
+cached_fingerprints_path: cache/v100_trap_plugae_20/plugae/qwen15.pth
+re_fingerprinting: true
+query_path: data/plugae_random_4digit_20.csv
+num_queries: 20
+copyright_token: mkahg
+learning_rate: 0.1
+epochs: 30
+optimization_batch_size: 4
+generation_batch_size: 8

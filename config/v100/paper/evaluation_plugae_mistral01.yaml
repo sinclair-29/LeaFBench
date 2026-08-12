@@ -1,0 +1,19 @@
+source_model: {alias: mistral_7b_v01, model_name: Mistral-7B-v0.1}
+model_groups:
+  original: [{model_name: Mistral-7B-v0.1}]
+  derivatives:
+    - {model_name: Mistral-7B-Instruct-v0.1, modification_type: instruction_tuning}
+  negatives:
+    - {model_name: Llama-7B, negative_type: unrelated}
+    - {model_name: Llama-2-7B, negative_type: unrelated}
+    - {model_name: Qwen2.5-7B, negative_type: unrelated}
+evaluations:
+  model_modification_robustness:
+    enabled: true
+    generation: {do_sample: true, temperature: 1.0, top_p: 1.0, seed: 0, max_new_tokens: 48}
+  deployment_robustness: {enabled: false}
+  model_specificity:
+    enabled: true
+    seeds: [0]
+    generation: {do_sample: true, temperature: 1.0, top_p: 1.0, max_new_tokens: 48}
+  prompt_stealthiness: {enabled: false}

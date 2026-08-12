@@ -52,6 +52,22 @@ models:
       model_name: Llama-2-7B-Chat
       model_path: /raid/chj/fingerprint/models/Llama-2-7b-chat-hf
 
+  - model_family: Llama-7B
+    pretrained_model:
+      model_name: Llama-7B
+      model_path: /raid/chj/fingerprint/models/llama-7b-hf
+    # PlugAE transfers the learned Llama-7B token embedding into these
+    # instruction-tuned descendants, as in the paper's proactive protocol.
+    predeployed_models:
+      - model_name: Vicuna-7B-v1.3
+        model_path: /raid/chj/fingerprint/models/vicuna-7b-v1.3
+        type: instruction_tuning
+        prompt_format: instruct
+      - model_name: Guanaco-7B
+        model_path: /raid/chj/fingerprint/models/guanaco-7B-HF
+        type: instruction_tuning
+        prompt_format: instruct
+
   - model_family: CodeLlama-7B
     pretrained_model:
       model_name: CodeLlama-7B
@@ -72,6 +88,14 @@ models:
     instruct_model:
       model_name: Mistral-7B-Instruct-v0.3
       model_path: /raid/chj/fingerprint/models/Mistral-7B-Instruct-v0.3
+
+  - model_family: Mistral-7B-v0.1
+    pretrained_model:
+      model_name: Mistral-7B-v0.1
+      model_path: /raid/chj/fingerprint/models/Mistral-7B-v0.1
+    instruct_model:
+      model_name: Mistral-7B-Instruct-v0.1
+      model_path: /raid/chj/fingerprint/models/Mistral-7B-Instruct-v0.1
 
   - model_family: Gemma-2-2B
     pretrained_model:

@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 
 from fingerprint.fingerprint_interface import LLMFingerprintInterface
 from fingerprint.reef.generate_activation import load_statements, get_acts
@@ -33,9 +32,9 @@ class REEFFingerprint(LLMFingerprintInterface):
                 f"REEF requested {num_samples} statements but only "
                 f"{len(statements)} are available."
             )
-        rng = np.random.default_rng(int(self.config.get('seed', 42)))
-        indices = rng.choice(len(statements), size=num_samples, replace=False)
-        self.statements = [statements[index] for index in indices]
+        # The released REEF code applies ``[:downsample]``; it does not draw a
+        # random subset despite exposing a seed elsewhere in the pipeline.
+        self.statements = statements[:num_samples]
         self.batch_size = self.config.get('batch_size', 1)
 
     def prepare_evaluation(self, records, train_models=None):

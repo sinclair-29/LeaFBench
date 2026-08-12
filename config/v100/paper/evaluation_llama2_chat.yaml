@@ -7,6 +7,8 @@ model_groups:
     - model_name: Llama-2-7B-Chat
   derivatives: []
   negatives:
+    - {model_name: Guanaco-7B, negative_type: family_related_hard}
+    - {model_name: Vicuna-7B-v1.3, negative_type: family_related_hard}
     - {model_name: Llama-2-7B, negative_type: family_related_hard}
     - {model_name: CodeLlama-7B, negative_type: family_related_hard}
     - {model_name: Llama-3.1-8B-Instruct, negative_type: family_related_hard}
@@ -22,11 +24,11 @@ evaluations:
 
   deployment_robustness:
     enabled: true
-    generation: &greedy
-      do_sample: false
-      temperature: 0.0
-      top_p: 1.0
-      max_new_tokens: 48
+    generation: &trap_sampling
+      do_sample: true
+      temperature: 0.6
+      top_p: 0.9
+      max_new_tokens: 18
     system_prompts:
       - {id: default, prompt: null}
       - {id: helpful, prompt: "You are a helpful, accurate, and concise assistant."}
@@ -34,8 +36,8 @@ evaluations:
       - {id: json, prompt: "Return only valid JSON with no surrounding commentary."}
       - {id: terse, prompt: "Answer as briefly as possible."}
     sampling:
-      seeds: [0, 1, 2, 3, 4]
-      generation: {max_new_tokens: 48}
+      seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      generation: {max_new_tokens: 18}
       temperature_values: [0.0, 0.2, 0.5, 0.7, 1.0]
       temperature_top_p: 1.0
       top_p_values: [1.0, 0.95, 0.9, 0.8]
@@ -43,13 +45,13 @@ evaluations:
 
   model_specificity:
     enabled: true
-    seeds: [0, 1, 2, 3, 4]
+    seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     generation:
       input_mode: model_rendered
       do_sample: true
-      temperature: 0.7
+      temperature: 0.6
       top_p: 0.9
-      max_new_tokens: 48
+      max_new_tokens: 18
 
   prompt_stealthiness:
     enabled: true

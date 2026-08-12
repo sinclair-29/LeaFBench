@@ -1,0 +1,16 @@
+source_model: {alias: llama2_7b_base, model_name: Llama-2-7B}
+model_groups:
+  original: [{model_name: Llama-2-7B}]
+  derivatives:
+    - {model_name: Llama-2-7B-Chat, modification_type: instruction_tuning}
+    - {model_name: CodeLlama-7B, modification_type: continued_pretraining}
+  negatives:
+    - {model_name: Qwen1.5-7B, negative_type: unrelated}
+    - {model_name: Baichuan2-7B-Base, negative_type: unrelated}
+    - {model_name: Mistral-7B-v0.1, negative_type: unrelated}
+    - {model_name: Qwen2.5-7B, negative_type: unrelated}
+evaluations:
+  model_modification_robustness: {enabled: true}
+  deployment_robustness: {enabled: false}
+  model_specificity: {enabled: true, seeds: [0]}
+  prompt_stealthiness: {enabled: false}

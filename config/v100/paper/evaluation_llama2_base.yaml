@@ -18,11 +18,11 @@ model_groups:
 evaluations:
   model_modification_robustness:
     enabled: true
-    generation: {input_mode: source_rendered, do_sample: false, temperature: 0.0, top_p: 1.0, seed: 0, max_new_tokens: 48}
+    generation: {input_mode: source_rendered, do_sample: true, temperature: 1.0, top_p: 1.0, seed: 0, max_new_tokens: 48}
   deployment_robustness:
     enabled: true
     model_name: Llama-2-7B-Chat
-    generation: {do_sample: false, temperature: 0.0, top_p: 1.0, max_new_tokens: 48}
+    generation: {do_sample: true, temperature: 1.0, top_p: 1.0, max_new_tokens: 48}
     system_prompts:
       - {id: default, prompt: null}
       - {id: helpful, prompt: "You are a helpful, accurate, and concise assistant."}
@@ -39,7 +39,7 @@ evaluations:
   model_specificity:
     enabled: true
     seeds: [0, 1, 2, 3, 4]
-    generation: {input_mode: model_rendered, do_sample: true, temperature: 0.7, top_p: 0.9, max_new_tokens: 48}
+    generation: {input_mode: model_rendered, do_sample: true, temperature: 1.0, top_p: 1.0, max_new_tokens: 48}
   prompt_stealthiness:
     enabled: true
     reference_model: /raid/chj/fingerprint/models/opt-1.3b

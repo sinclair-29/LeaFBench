@@ -1,0 +1,16 @@
+source_model: {alias: qwen25_7b_instruct, model_name: Qwen2.5-7B-Instruct}
+model_groups:
+  original: [{model_name: Qwen2.5-7B-Instruct}]
+  derivatives: []
+  negatives:
+    - {model_name: Qwen2.5-7B, negative_type: family_related_hard}
+    - {model_name: Qwen1.5-7B-Chat, negative_type: family_related_hard}
+    - {model_name: Qwen2.5-14B-Instruct, negative_type: scale_variant}
+    - {model_name: Llama-2-7B-Chat, negative_type: unrelated}
+    - {model_name: Mistral-7B-Instruct-v0.3, negative_type: unrelated}
+evaluations:
+  model_modification_robustness: {enabled: false}
+  deployment_robustness: {enabled: false}
+  # One 200-call fingerprint per model, matching the paper's query budget.
+  model_specificity: {enabled: true, seeds: [1000]}
+  prompt_stealthiness: {enabled: false}

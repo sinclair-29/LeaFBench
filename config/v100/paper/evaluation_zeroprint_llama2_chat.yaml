@@ -1,0 +1,16 @@
+source_model: {alias: llama2_7b_chat, model_name: Llama-2-7B-Chat}
+model_groups:
+  original: [{model_name: Llama-2-7B-Chat}]
+  derivatives: []
+  negatives:
+    - {model_name: Llama-2-7B, negative_type: family_related_hard}
+    - {model_name: CodeLlama-7B, negative_type: family_related_hard}
+    - {model_name: Vicuna-7B-v1.3, negative_type: family_related_hard}
+    - {model_name: Qwen2.5-7B-Instruct, negative_type: unrelated}
+    - {model_name: Mistral-7B-Instruct-v0.3, negative_type: unrelated}
+evaluations:
+  model_modification_robustness: {enabled: false}
+  deployment_robustness: {enabled: false}
+  # One 200-call fingerprint per model, matching the paper's query budget.
+  model_specificity: {enabled: true, seeds: [1000]}
+  prompt_stealthiness: {enabled: false}

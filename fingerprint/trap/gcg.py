@@ -1,5 +1,7 @@
+import csv
 import logging
 import random
+import re
 
 import torch
 import torch.nn.functional as F
@@ -24,6 +26,7 @@ class GCGOptimizer:
         "use_prefix_cache",
         "allow_non_ascii",
         "filter_ids",
+        "filter_words_path",
         "early_stop",
         "add_space_before_target",
     }
@@ -63,10 +66,24 @@ class GCGOptimizer:
         self.use_prefix_cache = config.get("use_prefix_cache", False)
         self.allow_non_ascii = config.get("allow_non_ascii", False)
         self.add_space_before_target = config.get("add_space_before_target", False)
+        self.filter_words_path = config.get("filter_words_path")
+
+        if self.seed is not None:
+            random.seed(self.seed)
+            torch.manual_seed(self.seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(self.seed)
+        torch.use_deterministic_algorithms(True, warn_only=True)
 
         self._validate_config(config)
+        disallowed = set()
+        if not self.allow_non_ascii:
+            disallowed.update(self._get_nonascii_token_ids().tolist())
+        if self.filter_words_path:
+            disallowed.update(self._get_number_filter_token_ids(self.filter_words_path))
         self.not_allowed_ids = (
-            None if self.allow_non_ascii else self._get_nonascii_token_ids()
+            torch.tensor(sorted(disallowed), device=self.device, dtype=torch.long)
+            if disallowed else None
         )
 
         self.before_ids = None
@@ -119,6 +136,36 @@ class GCGOptimizer:
             ):
                 disallowed.append(token_id)
         return torch.tensor(disallowed, device=self.device, dtype=torch.long)
+
+    @staticmethod
+    def _is_roman_numeral(value):
+        value = value.strip("▁ ")
+        if not value:
+            return False
+        return re.fullmatch(
+            r"M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})",
+            value,
+        ) is not None
+
+    def _get_number_filter_token_ids(self, path):
+        """Build the tokenizer-specific number filter used by TRAP."""
+        with open(path, newline="", encoding="utf-8") as stream:
+            words = {
+                row[0].strip().casefold()
+                for row in csv.reader(stream)
+                if row and row[0].strip()
+            }
+        filtered = []
+        for token, token_id in self.tokenizer.get_vocab().items():
+            normalized = token.casefold().strip("▁ ").rstrip("s")
+            if normalized in words or self._is_roman_numeral(token):
+                filtered.append(token_id)
+        if not filtered:
+            raise ValueError(
+                f"TRAP number filter {path} matched no tokens for this tokenizer"
+            )
+        logger.info("TRAP filtered %d number-related token ids", len(set(filtered)))
+        return filtered
 
     def _encode(self, text, *, add_special_tokens):
         encoded = self.tokenizer(text, add_special_tokens=add_special_tokens)
@@ -413,13 +460,6 @@ class GCGOptimizer:
         return torch.cat(losses)
 
     def optimize(self, instruction, target):
-        if self.seed is not None:
-            random.seed(self.seed)
-            torch.manual_seed(self.seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(self.seed)
-        torch.use_deterministic_algorithms(True, warn_only=True)
-
         current_ids = self._prepare_prompt(instruction, target)
         best_ids = current_ids[0].clone()
         best_loss = float("inf")

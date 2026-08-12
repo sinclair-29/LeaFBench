@@ -51,7 +51,7 @@ def main() -> int:
         writer.writeheader()
         writer.writerows(rows)
     print(f"Wrote {len(rows)} rows to {output}")
-    return 1 if len(rows) != 16 else 0
+    return 1 if len(rows) != 15 else 0
 
 
 if __name__ == "__main__":

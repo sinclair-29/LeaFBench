@@ -1,7 +1,7 @@
 fingerprint_method: trap
 fingerprint_type: black-box
 seed: 42
-cached_fingerprints_path: cache/v100_fingerprint_paper/trap/llama_seed_44.pth
+cached_fingerprints_path: cache/v100_fingerprint_paper/trap/vicuna_shard_2.pth
 re_fingerprinting: true
 n_goals: 100
 goal_offset: 67
@@ -9,7 +9,7 @@ goal_count: 33
 prompt_seed: 41
 string_type: number
 string_length: 4
-prompt_path: cache/v100_fingerprint_paper/trap/llama_prompts_target_seed_41_shard_2.csv
+prompt_path: cache/v100_fingerprint_paper/trap/vicuna_prompts_target_seed_41_shard_2.csv
 regenerate_prompts: true
 test_n_times: 10
 batch_size: 8
