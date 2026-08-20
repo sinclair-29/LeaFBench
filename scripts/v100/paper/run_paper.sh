@@ -38,9 +38,53 @@ run_job() {
   local job_id="gpu${gpu}_${method}_${alias}_seed${seed}"
   local job_root="${RESULTS_ROOT}/${job_id}"
   local log_file="${LOG_ROOT}/${job_id}.log"
-  mkdir -p "${job_root}"
+  local status_root="${LOG_ROOT}/status"
+  local status_file="${status_root}/${job_id}.json"
+  local phase_file="${status_root}/${job_id}.phase"
+  local phase="setup" heartbeat_pid="" worker_pid="${BASHPID}"
+  mkdir -p "${job_root}" "${status_root}"
+  write_job_status() {
+    local state="$1" exit_code="${2:-null}" temporary
+    temporary="${status_file}.tmp.${BASHPID}"
+    printf '{"job_id":"%s","state":"%s","phase":"%s","pid":%s,"host":"%s","updated_at":"%s","exit_code":%s}\n' \
+      "${job_id}" "${state}" "$(<"${phase_file}")" "${worker_pid}" \
+      "$(hostname)" "$(date --iso-8601=seconds)" "${exit_code}" > "${temporary}"
+    mv "${temporary}" "${status_file}"
+  }
+  set_job_phase() {
+    phase="$1"
+    printf '%s\n' "${phase}" > "${phase_file}"
+    write_job_status running
+  }
+  finish_job() {
+    local rc="$?"
+    trap - EXIT INT TERM HUP
+    if [[ -n "${heartbeat_pid}" ]]; then
+      kill "${heartbeat_pid}" 2>/dev/null || true
+      wait "${heartbeat_pid}" 2>/dev/null || true
+    fi
+    if (( rc == 0 )); then
+      write_job_status completed 0
+    else
+      write_job_status failed "${rc}"
+    fi
+    exit "${rc}"
+  }
+  trap finish_job EXIT
+  trap 'exit 130' INT TERM HUP
+  printf '%s\n' "${phase}" > "${phase_file}"
+  write_job_status running
+  (
+    trap - EXIT INT TERM HUP
+    while kill -0 "${worker_pid}" 2>/dev/null; do
+      write_job_status running
+      sleep 30
+    done
+  ) &
+  heartbeat_pid="$!"
   {
     echo "[$(date --iso-8601=seconds)] START ${job_id}"
+    set_job_phase generate
     CUDA_VISIBLE_DEVICES="${gpu}" "${PYTHON_BIN}" evaluation.py generate \
       --benchmark-config "${BENCHMARK_CONFIG}" \
       --fingerprint-config "${fp_config}" \
@@ -55,6 +99,7 @@ run_job() {
       echo "No generated fingerprint batch for ${job_id}" >&2
       return 1
     fi
+    set_job_phase evaluate
     CUDA_VISIBLE_DEVICES="${gpu}" "${PYTHON_BIN}" evaluation.py run \
       --benchmark-config "${BENCHMARK_CONFIG}" \
       --fingerprint-config "${fp_config}" \
@@ -63,6 +108,8 @@ run_job() {
       --retry-failed
     echo "[$(date --iso-8601=seconds)] DONE ${job_id}"
   } >> "${log_file}" 2>&1
+  phase="finalize"
+  printf '%s\n' "${phase}" > "${phase_file}"
 }
 
 pids=() names=()

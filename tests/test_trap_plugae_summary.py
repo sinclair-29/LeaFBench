@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import socket
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -97,7 +100,7 @@ class TrapPlugAESummaryTest(unittest.TestCase):
         self.assertEqual(by_job[job]["status"], "completed")
         self.assertEqual(by_job[job]["actual_artifacts"], 20)
         self.assertEqual(by_job[job]["roc_auc"], 1.0)
-        self.assertEqual(by_job[failed]["status"], "started_without_saved_batch")
+        self.assertEqual(by_job[failed]["status"], "interrupted")
         self.assertIn("ValueError: no weights", bundle["failed_log_tails"][failed])
         self.assertEqual(len(bundle["deployment_conditions"]), 1)
         self.assertEqual(len(bundle["model_scores"]), 1)
@@ -142,6 +145,38 @@ class TrapPlugAESummaryTest(unittest.TestCase):
         self.assertEqual(row["actual_artifacts"], 1)
         self.assertEqual(row["query_target_pairs"], 20)
         self.assertEqual(row["status"], "completed")
+
+    def test_fresh_live_heartbeat_is_running_and_failed_phase_is_terminal(self):
+        running = "gpu00_trap_running"
+        failed = "gpu01_trap_failed"
+        write_json(
+            self.logs / "status" / f"{running}.json",
+            {
+                "job_id": running,
+                "state": "running",
+                "phase": "generate",
+                "pid": os.getpid(),
+                "host": socket.gethostname(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "exit_code": None,
+            },
+        )
+        write_json(
+            self.logs / "status" / f"{failed}.json",
+            {
+                "job_id": failed,
+                "state": "failed",
+                "phase": "generate",
+                "pid": 999999,
+                "host": socket.gethostname(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "exit_code": 1,
+            },
+        )
+        bundle = SUMMARY.analyze(self.results, self.logs)
+        by_job = {row["job_id"]: row for row in bundle["jobs"]}
+        self.assertEqual(by_job[running]["status"], "running")
+        self.assertEqual(by_job[failed]["status"], "generation_failed")
 
 
 if __name__ == "__main__":

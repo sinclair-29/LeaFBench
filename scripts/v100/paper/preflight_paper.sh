@@ -121,4 +121,19 @@ PY
 
 "${PYTHON_BIN}" -m unittest \
   tests.test_evaluation tests.test_trap_protocol tests.test_reef_protocol
+
+model_preflight=(
+  "${PYTHON_BIN}" scripts/v100/preflight_models.py
+  --benchmark-config config/v100/paper/benchmark.yaml
+)
+for config_path in config/v100/paper/evaluation_*.yaml; do
+  model_preflight+=(--evaluation-config "${config_path}")
+done
+if [[ "${LEAFBENCH_PREFLIGHT_CONFIG_ONLY:-0}" == "1" ]]; then
+  model_preflight+=(--config-only)
+fi
+if [[ "${LEAFBENCH_PREFLIGHT_FULL_CPU:-0}" == "1" ]]; then
+  model_preflight+=(--full-cpu-load)
+fi
+"${model_preflight[@]}"
 echo "Paper experiment preflight passed."

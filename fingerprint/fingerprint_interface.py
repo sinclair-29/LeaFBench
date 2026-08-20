@@ -1,6 +1,6 @@
 import copy
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import torch
 
@@ -67,6 +67,33 @@ class LLMFingerprintInterface:
             torch.Tensor: The fingerprint tensor.
         """
         raise NotImplementedError("This method should be implemented by subclasses.")
+
+    def expected_artifact_count(self):
+        """Return the expected number of numbered records when known."""
+        return None
+
+    def iter_fingerprint_records(
+        self, source_model, experiment_id, start_index=1
+    ):
+        """Yield records in order, allowing methods to checkpoint incrementally.
+
+        The default implementation remains atomic: it constructs the native
+        fingerprint first, then yields its serialized records. Long-running
+        methods such as TRAP override this hook to yield one completed item at
+        a time.
+        """
+        if start_index != 1:
+            raise ValueError(
+                f"{type(self).__name__} cannot resume a partial fingerprint batch."
+            )
+        fingerprint = self.get_fingerprint(source_model)
+        yield from self.fingerprint_to_records(
+            fingerprint, source_model, experiment_id
+        )
+
+    def validate_partial_records(self, records):
+        """Validate already checkpointed records before generation resumes."""
+        del records
     
     def compare_fingerprints(self, base_model, testing_model):
         """
@@ -175,7 +202,7 @@ class LLMFingerprintInterface:
     @staticmethod
     def _record(experiment_id, index, source_model, payload, metadata=None):
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "fingerprint_id": f"{experiment_id}:{index:03d}",
             "item_index": index,
             "source_model": source_model.model_name,

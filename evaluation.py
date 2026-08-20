@@ -22,7 +22,6 @@ import math
 import os
 import random
 import re
-import shutil
 import sys
 import traceback
 from collections import defaultdict
@@ -34,7 +33,7 @@ import numpy as np
 import yaml
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 EVALUATION_NAMES = (
     "model_modification_robustness",
     "deployment_robustness",
@@ -161,7 +160,25 @@ def artifact_paths(batch_dir: Union[Path, str]) -> List[Path]:
     return sorted(paths, key=lambda path: int(path.stem))
 
 
-def load_records(batch_dir: Union[Path, str]) -> List[Dict[str, Any]]:
+def load_records(
+    batch_dir: Union[Path, str], *, allow_incomplete: bool = False
+) -> List[Dict[str, Any]]:
+    batch_dir = Path(batch_dir)
+    config_path = batch_dir / "fingerprint_config.json"
+    if config_path.is_file() and not allow_incomplete:
+        config = read_json(config_path)
+        if int(config.get("schema_version", 1)) >= 2:
+            status = config.get("status")
+            expected_count = config.get("expected_artifact_count")
+            if status not in {"completed", "completed_with_warnings"}:
+                raise ValueError(
+                    f"Fingerprint batch is incomplete ({status!r}): {batch_dir}"
+                )
+            if expected_count is not None and config.get("artifact_count") != expected_count:
+                raise ValueError(
+                    "Completed fingerprint manifest has inconsistent artifact counts: "
+                    f"{batch_dir}"
+                )
     paths = artifact_paths(batch_dir)
     if not paths:
         raise FileNotFoundError(f"No numbered fingerprint artifacts found in {batch_dir}")
@@ -277,13 +294,87 @@ def write_fingerprint_batch(
         "experiment_id": batch_dir.name,
         "config_hash": stable_hash(identity),
         "created_at": utc_now(),
+        "status": "completed",
+        "expected_artifact_count": len(records),
         "artifact_count": len(records),
+        "warnings": [],
+        "updated_at": utc_now(),
         **copy.deepcopy(identity),
     }
     atomic_write_json(batch_dir / "fingerprint_config.json", config)
     width = max(3, len(str(len(records))))
     for index, record in enumerate(records, start=1):
         atomic_write_json(batch_dir / f"{index:0{width}d}.json", record)
+
+
+def initialize_fingerprint_manifest(
+    batch_dir: Path,
+    identity: Mapping[str, Any],
+    expected_artifact_count: Optional[int],
+) -> Dict[str, Any]:
+    """Create or validate a resumable schema-v2 generation manifest."""
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    path = batch_dir / "fingerprint_config.json"
+    identity_hash = stable_hash(identity)
+    if path.is_file():
+        manifest = read_json(path)
+        if manifest.get("config_hash") != identity_hash:
+            raise ValueError(f"Fingerprint generation identity changed: {batch_dir}")
+        if int(manifest.get("schema_version", 1)) < 2:
+            return manifest
+        stored_expected = manifest.get("expected_artifact_count")
+        if (
+            stored_expected is not None
+            and expected_artifact_count is not None
+            and stored_expected != expected_artifact_count
+        ):
+            raise ValueError(
+                "Fingerprint expected artifact count changed while resuming: "
+                f"{stored_expected} != {expected_artifact_count}"
+            )
+        return manifest
+
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "experiment_id": batch_dir.name,
+        "config_hash": identity_hash,
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+        "status": "generating",
+        "expected_artifact_count": expected_artifact_count,
+        "artifact_count": 0,
+        "warnings": [],
+        **copy.deepcopy(identity),
+    }
+    atomic_write_json(path, manifest)
+    return manifest
+
+
+def update_fingerprint_manifest(
+    batch_dir: Path,
+    *,
+    status: Optional[str] = None,
+    artifact_count: Optional[int] = None,
+    warnings: Optional[Sequence[str]] = None,
+    error: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    path = batch_dir / "fingerprint_config.json"
+    manifest = read_json(path)
+    if int(manifest.get("schema_version", 1)) < 2:
+        return manifest
+    if status is not None:
+        manifest["status"] = status
+    if artifact_count is not None:
+        manifest["artifact_count"] = int(artifact_count)
+    if warnings is not None:
+        manifest["warnings"] = list(dict.fromkeys(str(item) for item in warnings))
+    if error is not None:
+        manifest["error"] = dict(error)
+    elif status in {"generating", "completed", "completed_with_warnings"}:
+        manifest.pop("error", None)
+    manifest["updated_at"] = utc_now()
+    atomic_write_json(path, manifest)
+    return manifest
 
 
 def clone_evaluation_variant(batch_dir: Path) -> Path:
@@ -378,6 +469,12 @@ def model_groups(config: Mapping[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
             raise ValueError(
                 f"Negative model {entry['model_name']} requires negative_type."
             )
+        threshold_split = entry.get("threshold_split")
+        if threshold_split not in {None, "calibration", "held_out"}:
+            raise ValueError(
+                f"Negative model {entry['model_name']} has invalid threshold_split "
+                f"{threshold_split!r}; expected calibration or held_out."
+            )
     names = [
         entry["model_name"]
         for group_entries in result.values()
@@ -456,6 +553,16 @@ def safe_ratio(value: float, baseline: float) -> Optional[float]:
     return float(value / baseline) if baseline else None
 
 
+def effective_decoding_seeds(
+    seeds: Sequence[Any], generation: Mapping[str, Any]
+) -> tuple[List[int], List[int]]:
+    requested = [int(seed) for seed in seeds]
+    if not requested:
+        raise ValueError("At least one decoding seed is required.")
+    effective = requested if generation.get("do_sample", True) else [0]
+    return requested, effective
+
+
 def youden_threshold(scores: Sequence[float], labels: Sequence[int]) -> float:
     if len(scores) != len(labels) or not scores:
         raise ValueError("Youden threshold requires equally sized non-empty scores and labels.")
@@ -485,24 +592,68 @@ def run_model_modification(
     benchmark: Any,
     groups: Mapping[str, Sequence[Mapping[str, Any]]],
     spec: Mapping[str, Any],
+    checkpoint=None,
+    existing: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     generation = dict(spec.get("generation", {}))
+    generation.setdefault("input_mode", "model_rendered")
+    existing_rows = {
+        row.get("evaluation_model"): row
+        for row in (existing or {}).get("models", [])
+        if isinstance(row, dict) and row.get("status") == "completed"
+    }
     rows = []
     entries = list(groups["original"]) + list(groups["derivatives"])
+    if (
+        generation.get("input_mode") == "source_rendered"
+        and getattr(method, "requires_model_rendered_cross_model", False)
+        and any(entry["model_name"] != source_model.model_name for entry in entries)
+    ):
+        raise ValueError(
+            "Cross-model modification evaluation requires input_mode: model_rendered."
+        )
     for entry in entries:
-        model = benchmark.get_all_models()[entry["model_name"]]
-        result = verify_model(method, source_model, model, generation)
-        result["role"] = entry["role"]
-        result["modification_type"] = entry.get("modification_type")
+        cached = existing_rows.get(entry["model_name"])
+        if cached is not None:
+            rows.append(cached)
+            continue
+        try:
+            model = benchmark.get_all_models()[entry["model_name"]]
+            result = verify_model(method, source_model, model, generation)
+            result.update(
+                {
+                    "role": entry["role"],
+                    "modification_type": entry.get("modification_type"),
+                    "status": "completed",
+                }
+            )
+        except Exception as error:
+            result = {
+                "evaluation_model": entry["model_name"],
+                "role": entry["role"],
+                "modification_type": entry.get("modification_type"),
+                "status": "failed",
+                "error": {
+                    "type": type(error).__name__,
+                    "message": str(error),
+                    "traceback": traceback.format_exc(),
+                },
+            }
         rows.append(result)
-    baseline = next(row["score"] for row in rows if row["role"] == "original")
-    for row in rows:
-        row["metrics"]["retention_rate"] = safe_ratio(row["score"], baseline)
-    derivative_rows = [row for row in rows if row["role"] == "derivative"]
+        if checkpoint is not None:
+            checkpoint({"models": rows, "summary": {}})
+
+    completed = [row for row in rows if row.get("status") == "completed"]
+    source_rows = [row for row in completed if row["role"] == "original"]
+    baseline = source_rows[0]["score"] if source_rows else None
+    if baseline is not None:
+        for row in completed:
+            row["metrics"]["retention_rate"] = safe_ratio(row["score"], baseline)
+    derivative_rows = [row for row in completed if row["role"] == "derivative"]
     derivative_retentions = [
         row["metrics"]["retention_rate"]
         for row in derivative_rows
-        if row["metrics"]["retention_rate"] is not None
+        if row["metrics"].get("retention_rate") is not None
     ]
     return {
         "models": rows,
@@ -518,7 +669,9 @@ def run_model_modification(
                 if derivative_retentions
                 else None
             ),
+            "complete_panel": len(completed) == len(entries),
         },
+        "failure_count": sum(row.get("status") == "failed" for row in rows),
     }
 
 
@@ -542,6 +695,8 @@ def deployment_conditions(spec: Mapping[str, Any], method: Any) -> tuple[List[Di
                         "condition_id": item["id"],
                         "system_prompt": item.get("prompt"),
                         "generation": generation,
+                        "requested_seeds": [int(generation["seed"])],
+                        "effective_seeds": [int(generation["seed"])],
                     }
                 )
         else:
@@ -581,6 +736,8 @@ def deployment_conditions(spec: Mapping[str, Any], method: Any) -> tuple[List[Di
                                 "seed": int(seed),
                                 "input_mode": "source_rendered",
                             },
+                            "requested_seeds": [int(value) for value in seeds],
+                            "effective_seeds": [int(value) for value in condition_seeds],
                         }
                     )
             top_p_values = sampling.get("top_p_values", [])
@@ -602,6 +759,8 @@ def deployment_conditions(spec: Mapping[str, Any], method: Any) -> tuple[List[Di
                                 "seed": int(seed),
                                 "input_mode": "source_rendered",
                             },
+                            "requested_seeds": [int(value) for value in seeds],
+                            "effective_seeds": [int(value) for value in seeds],
                         }
                     )
     if not conditions and not not_applicable:
@@ -648,6 +807,8 @@ def run_deployment(
         )
         result["component"] = condition["component"]
         result["condition_id"] = condition["condition_id"]
+        result["requested_seeds"] = condition["requested_seeds"]
+        result["effective_seeds"] = condition["effective_seeds"]
         if condition["system_prompt"] is not ...:
             result["system_prompt"] = condition["system_prompt"]
         results.append(result)
@@ -662,6 +823,8 @@ def run_deployment(
                 "component": component,
                 "condition_id": condition_id,
                 "num_runs": len(rows),
+                "requested_seeds": rows[0]["requested_seeds"],
+                "effective_seeds": rows[0]["effective_seeds"],
                 **mean_numeric(rows),
             }
         )
@@ -674,61 +837,195 @@ def run_specificity(
     benchmark: Any,
     groups: Mapping[str, Sequence[Mapping[str, Any]]],
     spec: Mapping[str, Any],
+    checkpoint=None,
+    existing: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     positives = list(groups["original"]) + list(groups["derivatives"])
     negatives = list(groups["negatives"])
     if not positives or not negatives:
         raise ValueError("model_specificity requires positive and negative models.")
+    configured_splits = {entry.get("threshold_split") for entry in negatives}
+    explicit_split = any(value is not None for value in configured_splits)
+    if explicit_split:
+        if None in configured_splits or not {
+            "calibration", "held_out"
+        }.issubset(configured_splits):
+            raise ValueError(
+                "threshold_split requires every negative to be assigned and at "
+                "least one calibration and one held_out negative."
+            )
     seeds = spec.get("seeds")
     if not isinstance(seeds, list) or not seeds:
         raise ValueError("model_specificity.seeds must be a non-empty list.")
     base_generation = dict(spec.get("generation", {}))
-    rows = []
-    for label, entries in ((1, positives), (0, negatives)):
-        for entry in entries:
-            model = benchmark.get_all_models()[entry["model_name"]]
-            seed_rows = []
-            for seed in seeds:
-                generation = {**base_generation, "seed": int(seed)}
-                generation.setdefault("input_mode", "source_rendered")
-                seed_rows.append(verify_model(method, source_model, model, generation))
-            row = {
-                "evaluation_model": entry["model_name"],
-                "label": label,
-                "role": entry["role"],
-                "negative_type": entry.get("negative_type"),
-                "score": float(np.mean([item["score"] for item in seed_rows])),
-                "metrics": mean_numeric(seed_rows),
-                "runs": seed_rows,
-            }
-            rows.append(row)
-
-    threshold = youden_threshold(
-        [row["score"] for row in rows], [row["label"] for row in rows]
-    )
-    for row in rows:
-        row["predicted_positive"] = int(row["score"] >= threshold)
-
-    labels = np.asarray([row["label"] for row in rows], dtype=int)
-    scores = np.asarray([row["score"] for row in rows], dtype=float)
-    # AUC is threshold-free and is therefore the primary model-level
-    # specificity statistic. The Youden threshold remains a descriptive
-    # operating point and must not be presented as held-out performance.
-    pairwise_auc = float(
-        np.mean(
-            [
-                (positive > negative) + 0.5 * (positive == negative)
-                for positive in scores[labels == 1]
-                for negative in scores[labels == 0]
-            ]
+    base_generation.setdefault("input_mode", "model_rendered")
+    if (
+        base_generation.get("input_mode") == "source_rendered"
+        and getattr(method, "requires_model_rendered_cross_model", False)
+        and any(
+            entry["model_name"] != source_model.model_name
+            for entry in positives + negatives
         )
+    ):
+        raise ValueError(
+            "Cross-model specificity evaluation requires input_mode: model_rendered."
+        )
+    requested_seeds, effective_seeds = effective_decoding_seeds(
+        seeds, base_generation
     )
-    source_score = next(
-        row["score"] for row in rows if row["evaluation_model"] == source_model.model_name
+    existing_rows = {
+        row.get("evaluation_model"): row
+        for row in (existing or {}).get("models", [])
+        if isinstance(row, dict) and row.get("status") == "completed"
+    }
+    rows = []
+    labeled_groups = (
+        (1, list(groups["original"])),
+        (None, list(groups["derivatives"])),
+        (0, negatives),
     )
-    source_rank = 1 + sum(float(score) > source_score for score in scores)
+    for label, entries in labeled_groups:
+        for entry in entries:
+            cached = existing_rows.get(entry["model_name"])
+            if cached is not None:
+                rows.append(cached)
+                continue
+            try:
+                model = benchmark.get_all_models()[entry["model_name"]]
+                seed_rows = []
+                for seed in effective_seeds:
+                    generation = {**base_generation, "seed": int(seed)}
+                    seed_rows.append(
+                        verify_model(method, source_model, model, generation)
+                    )
+                row = {
+                    "evaluation_model": entry["model_name"],
+                    "label": label,
+                    "role": entry["role"],
+                    "negative_type": entry.get("negative_type"),
+                    "threshold_split": entry.get("threshold_split"),
+                    "score": float(np.mean([item["score"] for item in seed_rows])),
+                    "metrics": mean_numeric(seed_rows),
+                    "runs": seed_rows,
+                    "status": "completed",
+                }
+            except Exception as error:
+                row = {
+                    "evaluation_model": entry["model_name"],
+                    "label": label,
+                    "role": entry["role"],
+                    "negative_type": entry.get("negative_type"),
+                    "threshold_split": entry.get("threshold_split"),
+                    "status": "failed",
+                    "error": {
+                        "type": type(error).__name__,
+                        "message": str(error),
+                        "traceback": traceback.format_exc(),
+                    },
+                }
+            rows.append(row)
+            if checkpoint is not None:
+                checkpoint(
+                    {
+                        "models": rows,
+                        "summary": {},
+                        "requested_seeds": requested_seeds,
+                        "effective_seeds": effective_seeds,
+                    }
+                )
 
-    negative_rows = [row for row in rows if row["label"] == 0]
+    completed = [row for row in rows if row.get("status") == "completed"]
+    source_rows = [row for row in completed if row["role"] == "original"]
+    negative_rows = [row for row in completed if row["role"] == "negative"]
+    derivative_rows = [row for row in completed if row["role"] == "derivative"]
+    source_score = source_rows[0]["score"] if source_rows else None
+    warnings = []
+    if len(negatives) < 6:
+        warnings.append(
+            f"small_panel: only {len(negatives)} negative models are configured"
+        )
+
+    pairwise_auc = None
+    source_margin = None
+    rank = {
+        "status": "unavailable",
+        "lower": None,
+        "upper": None,
+        "tie_count": None,
+    }
+    if source_score is not None and negative_rows:
+        negative_scores = [row["score"] for row in negative_rows]
+        pairwise_auc = float(
+            np.mean(
+                [
+                    (source_score > negative)
+                    + 0.5 * (source_score == negative)
+                    for negative in negative_scores
+                ]
+            )
+        )
+        source_margin = float(source_score - max(negative_scores))
+        panel_scores = [source_score, *negative_scores]
+        greater = sum(score > source_score for score in panel_scores)
+        tied = sum(score == source_score for score in panel_scores)
+        if len(set(panel_scores)) == 1:
+            rank = {
+                "status": "degenerate_all_equal",
+                "lower": None,
+                "upper": None,
+                "tie_count": tied,
+            }
+        else:
+            rank = {
+                "status": "ranked_with_ties" if tied > 1 else "ranked",
+                "lower": 1 + greater,
+                "upper": greater + tied,
+                "tie_count": tied,
+            }
+
+    calibration_rows = (
+        [row for row in negative_rows if row.get("threshold_split") == "calibration"]
+        if explicit_split
+        else negative_rows
+    )
+    held_out_rows = (
+        [row for row in negative_rows if row.get("threshold_split") == "held_out"]
+        if explicit_split
+        else []
+    )
+    threshold = None
+    threshold_status = "unavailable"
+    in_sample_fpr = None
+    held_out_fpr = None
+    calibration_scores = (
+        [source_score, *[row["score"] for row in calibration_rows]]
+        if source_score is not None and calibration_rows
+        else []
+    )
+    if calibration_scores:
+        if len(set(calibration_scores)) == 1:
+            threshold_status = "degenerate_all_equal"
+        else:
+            threshold = youden_threshold(
+                calibration_scores,
+                [1] + [0] * len(calibration_rows),
+            )
+            threshold_status = (
+                "held_out" if explicit_split else "descriptive_in_sample"
+            )
+            for row in completed:
+                row["predicted_positive"] = int(row["score"] >= threshold)
+            in_sample_fpr = float(
+                np.mean([row["predicted_positive"] for row in calibration_rows])
+            )
+            if held_out_rows:
+                held_out_fpr = float(
+                    np.mean([row["predicted_positive"] for row in held_out_rows])
+                )
+    if threshold is None:
+        for row in completed:
+            row["predicted_positive"] = None
+
     type_summary = []
     for negative_type in sorted({row["negative_type"] for row in negative_rows}):
         type_rows = [row for row in negative_rows if row["negative_type"] == negative_type]
@@ -742,8 +1039,10 @@ def run_specificity(
         type_summary.append(
             {
                 "negative_type": negative_type,
-                "model_fpr": float(
-                    np.mean([row["predicted_positive"] for row in type_rows])
+                "model_fpr": (
+                    float(np.mean([row["predicted_positive"] for row in type_rows]))
+                    if threshold is not None
+                    else None
                 ),
                 "event_fpr": float(np.mean(event_success)) if event_success else None,
                 "invalid_rate": float(np.mean(event_invalid)) if event_invalid else None,
@@ -754,20 +1053,54 @@ def run_specificity(
         "threshold": {
             "strategy": "youden_j",
             "value": threshold,
-            "calibration_source": "positive_and_negative_models_in_this_evaluation",
+            "status": threshold_status,
+            "calibration_source": (
+                "source_and_calibration_negatives"
+                if explicit_split
+                else "source_and_same_panel_negatives"
+            ),
+            "in_sample_descriptive_fpr": in_sample_fpr,
+            "held_out_fpr": held_out_fpr,
         },
         "models": rows,
         "summary": {
             "roc_auc": pairwise_auc,
-            "source_score_rank": int(source_rank),
-            "source_score_margin_over_best_negative": float(
-                source_score - max(row["score"] for row in negative_rows)
+            "roc_auc_definition": "source_vs_negative_models_only",
+            "source_score_rank": rank["lower"],
+            "source_rank": rank,
+            "source_score_margin_over_best_negative": source_margin,
+            "in_sample_descriptive_fpr": in_sample_fpr,
+            "held_out_fpr": held_out_fpr,
+            "overall_model_fpr": held_out_fpr,
+            "negative_model_count": len(negative_rows),
+            "configured_negative_model_count": len(negatives),
+            "auc_resolution": (
+                0.5 / len(negative_rows) if negative_rows else None
             ),
-            "overall_model_fpr": float(
-                np.mean([row["predicted_positive"] for row in negative_rows])
-            ),
+            "derivative_robustness": [
+                {
+                    "evaluation_model": row["evaluation_model"],
+                    "score": row["score"],
+                    "absolute_drop": (
+                        float(source_score - row["score"])
+                        if source_score is not None
+                        else None
+                    ),
+                    "retention_rate": (
+                        safe_ratio(row["score"], source_score)
+                        if source_score is not None
+                        else None
+                    ),
+                }
+                for row in derivative_rows
+            ],
+            "complete_panel": len(completed) == len(positives) + len(negatives),
             "by_negative_type": type_summary,
         },
+        "requested_seeds": requested_seeds,
+        "effective_seeds": effective_seeds,
+        "warnings": warnings,
+        "failure_count": sum(row.get("status") == "failed" for row in rows),
     }
 
 
@@ -1023,7 +1356,7 @@ def should_run_result(
     status = existing.get("status")
     if overwrite:
         return True
-    if status == "failed":
+    if status in {"failed", "partial_failed", "running"}:
         return retry_failed
     return False
 
@@ -1038,6 +1371,8 @@ def run_evaluations(args: argparse.Namespace) -> int:
     evaluation_config_path = Path(args.evaluation_config).resolve()
     benchmark_config = load_yaml(benchmark_config_path)
     fingerprint_config = load_yaml(fingerprint_config_path)
+    if args.optimization_seed is not None:
+        fingerprint_config["seed"] = int(args.optimization_seed)
     evaluation_config = load_yaml(evaluation_config_path)
     evaluation_hash = stable_hash(evaluation_config)
     batch_dir = Path(args.batch_dir).resolve()
@@ -1047,6 +1382,12 @@ def run_evaluations(args: argparse.Namespace) -> int:
     print(f"Evaluation batch: {batch_dir}")
 
     batch_config = read_json(batch_dir / "fingerprint_config.json")
+    if int(batch_config.get("schema_version", 1)) >= 2:
+        if batch_config.get("status") not in {"completed", "completed_with_warnings"}:
+            raise ValueError(
+                "Evaluation requires a complete fingerprint batch; generation status is "
+                f"{batch_config.get('status')!r}."
+            )
     if batch_config.get("config_hash") != stable_hash(
         {
             key: batch_config[key]
@@ -1129,14 +1470,14 @@ def run_evaluations(args: argparse.Namespace) -> int:
     source_model.fingerprint_records = records
 
     runners = {
-        "model_modification_robustness": lambda spec: run_model_modification(
-            method, source_model, benchmark, groups, spec
+        "model_modification_robustness": lambda spec, checkpoint=None, existing=None: run_model_modification(
+            method, source_model, benchmark, groups, spec, checkpoint, existing
         ),
         "deployment_robustness": lambda spec: run_deployment(
             method, source_model, benchmark, groups, spec
         ),
-        "model_specificity": lambda spec: run_specificity(
-            method, source_model, benchmark, groups, spec
+        "model_specificity": lambda spec, checkpoint=None, existing=None: run_specificity(
+            method, source_model, benchmark, groups, spec, checkpoint, existing
         ),
         "prompt_stealthiness": lambda spec: run_stealthiness(method, records, spec),
     }
@@ -1168,7 +1509,29 @@ def run_evaluations(args: argparse.Namespace) -> int:
             atomic_write_json(path, result)
             continue
         try:
-            payload = runners[name](spec)
+            existing = read_json(path) if path.is_file() else None
+
+            def checkpoint(partial_payload):
+                partial_result = make_result_envelope(
+                    name,
+                    batch_dir,
+                    batch_config["fingerprint_method"],
+                    source_model_name,
+                    evaluation_config,
+                    evaluation_hash,
+                    "running",
+                    partial_payload,
+                )
+                atomic_write_json(path, partial_result)
+
+            if name in {"model_modification_robustness", "model_specificity"}:
+                payload = runners[name](spec, checkpoint, existing)
+            else:
+                payload = runners[name](spec)
+            failure_count = int(payload.get("failure_count", 0))
+            status = "partial_failed" if failure_count else "completed"
+            if failure_count:
+                failures += 1
             result = make_result_envelope(
                 name,
                 batch_dir,
@@ -1176,11 +1539,24 @@ def run_evaluations(args: argparse.Namespace) -> int:
                 source_model_name,
                 evaluation_config,
                 evaluation_hash,
-                "completed",
+                status,
                 payload,
             )
         except Exception as error:
             failures += 1
+            partial = read_json(path) if path.is_file() else {}
+            preserved = {
+                key: partial[key]
+                for key in (
+                    "models", "summary", "requested_seeds", "effective_seeds"
+                )
+                if key in partial
+            }
+            preserved["error"] = {
+                "type": type(error).__name__,
+                "message": str(error),
+                "traceback": traceback.format_exc(),
+            }
             result = make_result_envelope(
                 name,
                 batch_dir,
@@ -1188,14 +1564,8 @@ def run_evaluations(args: argparse.Namespace) -> int:
                 source_model_name,
                 evaluation_config,
                 evaluation_hash,
-                "failed",
-                {
-                    "error": {
-                        "type": type(error).__name__,
-                        "message": str(error),
-                        "traceback": traceback.format_exc(),
-                    }
-                },
+                "partial_failed" if preserved.get("models") else "failed",
+                preserved,
             )
         atomic_write_json(path, result)
         print(f"{name}: {result['status']}")
@@ -1213,6 +1583,8 @@ def generate_batch(args: argparse.Namespace) -> int:
     fingerprint_config_path = Path(args.fingerprint_config).resolve()
     benchmark_config = load_yaml(benchmark_config_path)
     fingerprint_config = load_yaml(fingerprint_config_path)
+    if args.optimization_seed is not None:
+        fingerprint_config["seed"] = int(args.optimization_seed)
     # The optimization seed is part of the immutable experiment identity, so it
     # must govern every RNG used before and during fingerprint construction.
     # This covers Python-based TRAP target generation and ZeroPrint query/
@@ -1251,15 +1623,102 @@ def generate_batch(args: argparse.Namespace) -> int:
         int(fingerprint_config["seed"]),
     )
     batch_dir = resolve_generation_directory(results_root, base_name, identity_hash)
-    if batch_dir.exists() and artifact_paths(batch_dir):
-        print(f"Fingerprint batch already exists: {batch_dir}")
-        update_experiments_index(results_root)
-        return 0
-
     method.prepare(train_models=benchmark.get_training_models())
-    fingerprint = method.get_fingerprint(source_model)
-    records = method.fingerprint_to_records(fingerprint, source_model, batch_dir.name)
-    write_fingerprint_batch(batch_dir, records, identity)
+    expected_count = method.expected_artifact_count()
+    manifest = initialize_fingerprint_manifest(batch_dir, identity, expected_count)
+    existing_records = (
+        load_records(batch_dir, allow_incomplete=True)
+        if artifact_paths(batch_dir)
+        else []
+    )
+    method.validate_partial_records(existing_records)
+    if int(manifest.get("schema_version", 1)) < 2:
+        if existing_records:
+            print(f"Fingerprint batch already exists: {batch_dir}")
+            update_experiments_index(results_root)
+            return 0
+        raise ValueError("A legacy fingerprint manifest cannot be resumed without artifacts.")
+    if manifest.get("status") in {"completed", "completed_with_warnings"}:
+        if expected_count is None or len(existing_records) == expected_count:
+            print(f"Fingerprint batch already exists: {batch_dir}")
+            update_experiments_index(results_root)
+            return 0
+
+    warnings = list(manifest.get("warnings", []))
+    for record in existing_records:
+        warnings.extend(
+            str(item)
+            for item in (record.get("metadata") or {}).get("quality_warnings", [])
+        )
+    if expected_count is not None and len(existing_records) == expected_count:
+        final_status = "completed_with_warnings" if warnings else "completed"
+        update_fingerprint_manifest(
+            batch_dir,
+            status=final_status,
+            artifact_count=len(existing_records),
+            warnings=warnings,
+        )
+        update_experiments_index(results_root)
+        print(f"Fingerprint batch finalized after recovery: {batch_dir}")
+        return 0
+    update_fingerprint_manifest(
+        batch_dir,
+        status="generating",
+        artifact_count=len(existing_records),
+        warnings=warnings,
+    )
+    try:
+        next_index = len(existing_records) + 1
+        width = max(3, len(str(expected_count or next_index)))
+        for record in method.iter_fingerprint_records(
+            source_model, batch_dir.name, start_index=next_index
+        ):
+            item_index = int(record.get("item_index", 0))
+            if item_index != next_index:
+                raise ValueError(
+                    "Fingerprint records must be yielded contiguously; expected "
+                    f"{next_index}, got {item_index}."
+                )
+            path = batch_dir / f"{item_index:0{width}d}.json"
+            atomic_write_json(path, record)
+            record_warnings = (record.get("metadata") or {}).get(
+                "quality_warnings", []
+            )
+            warnings.extend(str(item) for item in record_warnings)
+            update_fingerprint_manifest(
+                batch_dir,
+                status="generating",
+                artifact_count=item_index,
+                warnings=warnings,
+            )
+            next_index += 1
+
+        actual_count = len(artifact_paths(batch_dir))
+        if expected_count is not None and actual_count != expected_count:
+            raise ValueError(
+                f"Fingerprint generation produced {actual_count} artifacts; "
+                f"expected {expected_count}."
+            )
+        final_status = "completed_with_warnings" if warnings else "completed"
+        update_fingerprint_manifest(
+            batch_dir,
+            status=final_status,
+            artifact_count=actual_count,
+            warnings=warnings,
+        )
+    except Exception as error:
+        update_fingerprint_manifest(
+            batch_dir,
+            status="generation_failed",
+            artifact_count=len(artifact_paths(batch_dir)),
+            warnings=warnings,
+            error={
+                "type": type(error).__name__,
+                "message": str(error),
+                "traceback": traceback.format_exc(),
+            },
+        )
+        raise
     update_experiments_index(results_root)
     print(f"Fingerprint batch generated: {batch_dir}")
     return 0
@@ -1277,12 +1736,14 @@ def build_parser() -> argparse.ArgumentParser:
     generate = subparsers.add_parser("generate", parents=[method_inputs])
     generate.add_argument("--source-model", required=True)
     generate.add_argument("--model-alias")
+    generate.add_argument("--optimization-seed", type=int)
     generate.add_argument("--results-root", default="results")
     generate.set_defaults(handler=generate_batch)
 
     run = subparsers.add_parser("run", parents=[method_inputs])
     run.add_argument("--evaluation-config", required=True)
     run.add_argument("--batch-dir", required=True)
+    run.add_argument("--optimization-seed", type=int)
     run.add_argument("--retry-failed", action="store_true")
     run.add_argument("--overwrite", action="store_true")
     run.set_defaults(handler=run_evaluations)

@@ -10,10 +10,13 @@ import argparse
 import csv
 import json
 import math
+import os
 import re
+import socket
 import zipfile
 from collections import Counter
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
 
 
@@ -168,20 +171,65 @@ def error_message(value: Mapping[str, Any] | None, parse_error: str | None) -> s
     return ""
 
 
-def status_for(row: Mapping[str, Any], events: list[dict[str, str]]) -> str:
+def read_worker_status(logs_root: Path | None, job_id: str) -> dict[str, Any] | None:
+    if logs_root is None:
+        return None
+    value, _ = safe_json(logs_root / "status" / f"{job_id}.json")
+    return value
+
+
+def worker_is_live(value: Mapping[str, Any]) -> bool:
+    if value.get("state") != "running":
+        return False
+    try:
+        updated = datetime.fromisoformat(str(value["updated_at"]))
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        fresh = (datetime.now(timezone.utc) - updated).total_seconds() <= 90
+        same_host = value.get("host") == socket.gethostname()
+        pid = int(value["pid"])
+        if not (fresh and same_host):
+            return False
+        os.kill(pid, 0)
+        return True
+    except (KeyError, TypeError, ValueError, OSError):
+        return False
+
+
+def status_for(
+    row: Mapping[str, Any],
+    events: list[dict[str, str]],
+    worker: Mapping[str, Any] | None,
+) -> str:
     report_statuses = [row[f"{name}_status"] for name in REPORTS]
     if all(status == "completed" for status in report_statuses):
-        return "completed"
+        return (
+            "completed_with_warnings"
+            if row.get("generation_status") == "completed_with_warnings"
+            else "completed"
+        )
+    if any(status == "partial_failed" for status in report_statuses):
+        return "evaluation_partial_failed"
     if any(status in {"failed", "invalid"} for status in report_statuses):
         return "evaluation_failed"
+    if row.get("generation_status") == "generation_failed":
+        return "generation_failed"
+    if worker_is_live(worker or {}):
+        return "running"
+    if worker and worker.get("state") == "failed":
+        return (
+            "evaluation_failed"
+            if worker.get("phase") == "evaluate"
+            else "generation_failed"
+        )
     if row.get("batch"):
         if row.get("actual_artifacts") != row.get("expected_artifacts"):
-            return "artifact_incomplete"
+            return "interrupted"
         return "generated_evaluation_incomplete"
     if any(event["event"] == "FAIL" for event in events):
         return "generation_failed"
     if any(event["event"] == "START" for event in events):
-        return "started_without_saved_batch"
+        return "interrupted"
     return "not_started_or_unknown"
 
 
@@ -197,6 +245,7 @@ def analyze(results_root: Path, logs_root: Path | None) -> dict[str, Any]:
     job_ids = set(batch_by_job) | set(master_events)
     if logs_root is not None and logs_root.is_dir():
         job_ids.update(path.stem for path in logs_root.glob("gpu*.log"))
+        job_ids.update(path.stem for path in (logs_root / "status").glob("*.json"))
 
     jobs: list[dict[str, Any]] = []
     model_rows: list[dict[str, Any]] = []
@@ -210,6 +259,7 @@ def analyze(results_root: Path, logs_root: Path | None) -> dict[str, Any]:
             "job_id": job_id,
             "method": "",
             "source_model": "",
+            "optimization_seed": None,
             "batch": "",
             "expected_artifacts": None,
             "actual_artifacts": 0,
@@ -220,8 +270,11 @@ def analyze(results_root: Path, logs_root: Path | None) -> dict[str, Any]:
             "source_score_rank": None,
             "source_margin": None,
             "overall_model_fpr": None,
+            "in_sample_descriptive_fpr": None,
+            "held_out_fpr": None,
             "error": "",
             "master_last_event": events[-1]["event"] if events else "",
+            "generation_status": "missing",
         }
         if paths:
             batch = choose_batch(paths)
@@ -231,7 +284,9 @@ def analyze(results_root: Path, logs_root: Path | None) -> dict[str, Any]:
                 row["error"] = config_error or "invalid fingerprint_config.json"
             else:
                 row["method"] = config.get("fingerprint_method", "")
+                row["generation_status"] = config.get("status", "completed")
                 row["source_model"] = (config.get("source_model") or {}).get("model_name", "")
+                row["optimization_seed"] = config.get("optimization_seed")
                 expected, actual, query_count = expected_and_actual(config, batch)
                 row["expected_artifacts"] = expected
                 row["actual_artifacts"] = actual
@@ -258,7 +313,9 @@ def analyze(results_root: Path, logs_root: Path | None) -> dict[str, Any]:
                                     }
                                 )
 
-                    if report == "model_specificity" and value and status == "completed":
+                    if report == "model_specificity" and value and status in {
+                        "completed", "partial_failed", "running"
+                    }:
                         summary = value.get("summary") or {}
                         row["roc_auc"] = summary.get("roc_auc")
                         row["source_score_rank"] = summary.get("source_score_rank")
@@ -266,6 +323,10 @@ def analyze(results_root: Path, logs_root: Path | None) -> dict[str, Any]:
                             "source_score_margin_over_best_negative"
                         )
                         row["overall_model_fpr"] = summary.get("overall_model_fpr")
+                        row["in_sample_descriptive_fpr"] = summary.get(
+                            "in_sample_descriptive_fpr"
+                        )
+                        row["held_out_fpr"] = summary.get("held_out_fpr")
                         for model in value.get("models", []):
                             if not isinstance(model, Mapping):
                                 continue
@@ -285,17 +346,35 @@ def analyze(results_root: Path, logs_root: Path | None) -> dict[str, Any]:
                             )
                 row["error"] = "; ".join(filter(None, [row["error"], *errors]))
 
-        row["status"] = status_for(row, events)
+        worker = read_worker_status(logs_root, job_id)
+        row["status"] = status_for(row, events, worker)
+        if worker:
+            row["worker_state"] = worker.get("state")
+            row["worker_phase"] = worker.get("phase")
+            row["worker_updated_at"] = worker.get("updated_at")
         if row["status"] != "completed":
             failed_tails[job_id] = log_tail(logs_root, job_id)
         jobs.append(row)
 
     warnings = list(discovery_warnings)
     for row in jobs:
-        if row["status"] == "started_without_saved_batch":
+        if row["status"] == "interrupted":
             warnings.append(
-                f"{row['job_id']}: worker started but no saved fingerprint batch exists; "
-                "inspect its log before treating it as still running."
+                f"{row['job_id']}: worker is no longer live and has no clean terminal "
+                "state; inspect its saved phase and detail log."
+            )
+    seeds_by_pair: dict[tuple[str, str], set[int]] = {}
+    for row in jobs:
+        seed = row.get("optimization_seed")
+        if isinstance(seed, int):
+            seeds_by_pair.setdefault(
+                (str(row.get("method")), str(row.get("source_model"))), set()
+            ).add(seed)
+    for (method, source), seeds in sorted(seeds_by_pair.items()):
+        if len(seeds) < 2:
+            warnings.append(
+                f"{method}/{source}: only one optimization seed is present; "
+                "do not report seed-level stability."
             )
     completed_sources: dict[str, set[str]] = {}
     for row in jobs:
@@ -339,15 +418,16 @@ def markdown_report(bundle: Mapping[str, Any]) -> str:
         "",
         "## Job summary",
         "",
-        "| job | method | source | artifacts | deployment | specificity | AUC | margin | overall FPR | final status |",
-        "|---|---|---|---:|---|---|---:|---:|---:|---|",
+        "| job | method | source | artifacts | deployment | specificity | AUC | margin | in-sample FPR | held-out FPR | final status |",
+        "|---|---|---|---:|---|---|---:|---:|---:|---:|---|",
     ]
     for row in jobs:
         artifacts = f"{row['actual_artifacts']}/{row['expected_artifacts']}"
         values = [
             row["job_id"], row["method"] or "?", row["source_model"] or "?", artifacts,
             row["deployment_robustness_status"], row["model_specificity_status"],
-            row["roc_auc"], row["source_margin"], row["overall_model_fpr"], row["status"],
+            row["roc_auc"], row["source_margin"],
+            row["in_sample_descriptive_fpr"], row["held_out_fpr"], row["status"],
         ]
         lines.append("| " + " | ".join("" if value is None else str(value) for value in values) + " |")
 
@@ -365,7 +445,7 @@ def markdown_report(bundle: Mapping[str, Any]) -> str:
             "",
             "- Compare TRAP and PlugAE only on source models listed as paired and completed.",
             "- A generated batch is not a completed experiment until both enabled evaluation reports are completed.",
-            "- The reported Youden operating point is calibrated and measured on the same suspect-model panel; treat its FPR as descriptive, while ROC AUC is the threshold-free primary statistic.",
+            "- `in_sample_descriptive_fpr` is never a held-out claim. `held_out_fpr` is populated only when negative models were explicitly split before evaluation.",
             "- Multiple seeds with greedy decoding are deterministic repeats, not independent stochastic trials.",
             "",
         ]
@@ -402,10 +482,11 @@ def main() -> int:
         summary_path,
         bundle["jobs"],
         (
-            "job_id", "method", "source_model", "status", "actual_artifacts",
+            "job_id", "method", "source_model", "optimization_seed", "status", "actual_artifacts",
             "expected_artifacts", "query_target_pairs", "deployment_robustness_status",
             "model_specificity_status", "roc_auc", "source_score_rank", "source_margin",
-            "overall_model_fpr", "error", "batch", "master_last_event",
+            "in_sample_descriptive_fpr", "held_out_fpr", "overall_model_fpr",
+            "error", "batch", "master_last_event",
         ),
     )
     write_csv(
