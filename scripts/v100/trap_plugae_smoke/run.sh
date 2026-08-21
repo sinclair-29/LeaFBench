@@ -91,7 +91,9 @@ fi
 "${preflight_args[@]}"
 
 run_method() {
-  local method="$1" config="${CONFIG_ROOT}/$2" method_root="${RESULTS_ROOT}/${method}"
+  local method="$1"
+  local config="${CONFIG_ROOT}/$2"
+  local method_root="${RESULTS_ROOT}/${method}"
   local batch_dir
   mkdir -p "${method_root}"
 
