@@ -1,0 +1,17 @@
+fingerprint_method: plugae
+fingerprint_type: black-box
+seed: 42
+cached_fingerprints_path: cache/v100_trap_plugae_smoke/plugae/phi3.pth
+re_fingerprinting: true
+
+# Only the number of query-target pairs is reduced. Learning rate, epochs and
+# batch sizes are identical to the 20-query experiment.
+query_path: data/plugae_random_4digit_20.csv
+num_queries: 3
+copyright_token: mkahg
+learning_rate: 0.1
+epochs: 30
+optimization_batch_size: 4
+generation_batch_size: 8
+diagnostic_interval: 5
+source_self_test_max_new_tokens: 8

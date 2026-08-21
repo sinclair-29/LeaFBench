@@ -1,0 +1,36 @@
+source_model: {alias: phi3_mini_4k_base, model_name: Phi-3-Mini-4K-Base}
+
+model_groups:
+  original:
+    - {model_name: Phi-3-Mini-4K-Base}
+  derivatives:
+    - model_name: Phi-3-Mini-4K-Instruct
+      modification_type: instruction_tuning
+  negatives:
+    - model_name: Qwen2.5-7B
+      negative_type: unrelated
+      threshold_split: calibration
+    - model_name: Gemma-2-2B
+      negative_type: unrelated
+      threshold_split: held_out
+
+evaluations:
+  model_modification_robustness: {enabled: false}
+  deployment_robustness:
+    enabled: true
+    sampling:
+      seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      generation: {max_new_tokens: 8}
+      temperature_values: [0.7]
+      temperature_top_p: 0.9
+      top_p_values: []
+  model_specificity:
+    enabled: true
+    seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    generation:
+      do_sample: false
+      temperature: 0.0
+      top_p: 1.0
+      max_new_tokens: 8
+      input_mode: model_rendered
+  prompt_stealthiness: {enabled: false}
