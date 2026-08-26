@@ -61,5 +61,4 @@ PY
   echo
   echo "Completed. Results: ${BATCH_DIR}"
   echo "Inspect: ${BATCH_DIR}/model_modification_robustness.json"
-  echo "Inspect: ${BATCH_DIR}/model_specificity.json"
 } 2>&1 | tee "${LOG_ROOT}/plugae_quick.log"

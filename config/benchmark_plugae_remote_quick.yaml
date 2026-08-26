@@ -3,7 +3,7 @@ max_loaded_models: 1
 offload_path: cache/plugae_remote_quick/model_offload
 
 default_generation_params:
-  max_new_tokens: 8
+  max_new_tokens: 64
   temperature: 0.0
   top_p: 1.0
   top_k: 50

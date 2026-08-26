@@ -14,7 +14,7 @@ evaluations:
     enabled: true
     generation:
       do_sample: false
-      max_new_tokens: 8
+      max_new_tokens: 64
   deployment_robustness:
     enabled: false
   model_specificity:
@@ -22,7 +22,7 @@ evaluations:
     seeds: [0]
     generation:
       do_sample: false
-      max_new_tokens: 8
+      max_new_tokens: 64
       input_mode: model_rendered
   prompt_stealthiness:
     enabled: false
