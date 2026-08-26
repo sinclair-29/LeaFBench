@@ -1,0 +1,30 @@
+# Minimal remote PlugAE panel.
+# Adjust /raid/chj/fingerprint/models if the server uses another model root.
+max_loaded_models: 1
+offload_path: cache/plugae_remote_quick/model_offload
+
+default_generation_params:
+  max_new_tokens: 8
+  temperature: 0.0
+  top_p: 1.0
+  top_k: 50
+  do_sample: false
+  max_input_length: 1024
+
+models:
+  - model_family: Gemma-2-2B
+    pretrained_model:
+      model_name: Gemma-2-2B
+      model_path: /raid/chj/fingerprint/models/gemma-2-2b
+    instruct_model:
+      model_name: Gemma-2-2B-IT
+      model_path: /raid/chj/fingerprint/models/gemma-2-2b-it
+
+  - model_family: Phi-3-Mini
+    pretrained_model:
+      model_name: Phi-3-Mini-4K-Base
+      model_path: /raid/chj/fingerprint/models/Phi-3-mini-4k-base
+
+training_data:
+  models: []
+  deploying_techniques: []

@@ -375,7 +375,6 @@ class PlugAEFingerprint(LLMFingerprintInterface):
             )
         generation = dict(generation or {})
         seed = int(generation.pop("seed", 0))
-        generation.pop("input_mode", None)
         set_seed(seed)
 
         generation["seed"] = seed
@@ -530,31 +529,62 @@ class PlugAEFingerprint(LLMFingerprintInterface):
     ):
         generation = dict(generation or {})
         seed = int(generation.pop("seed", 0))
-        generation.pop("input_mode", None)
+        requested_input_mode = generation.pop("input_mode", None)
         set_seed(seed)
         token = fingerprint["copyright_token"]
         specs = self._prompt_specs(token)
         prompts = [spec["text"] for spec in specs]
-        is_derivative = testing_model.pretrained_model == source_model.model_name
+        is_source = (
+            testing_model is source_model
+            or testing_model.model_name == source_model.model_name
+        )
+        is_derivative = (
+            not is_source
+            and testing_model.pretrained_model == source_model.model_name
+        )
         override_name = testing_model.base_model
         override_registered = False
         try:
-            if is_derivative:
-                testing_model.model_pool.register_token_embedding_override(
-                    override_name, token, fingerprint["embedding"]
-                )
-                override_registered = True
-                tokenizer = testing_model.model_pool.get_tokenizer(override_name)
-                self._validate_template_round_trip(tokenizer, token, specs)
-            outputs = []
-            for start in range(0, len(prompts), self.generation_batch_size):
-                outputs.extend(
-                    testing_model.generate(
-                        prompts[start : start + self.generation_batch_size],
-                        prompts_are_rendered=True,
-                        **generation,
+            if is_source:
+                torch_model, tokenizer = testing_model.load_model()
+                embedding_layer = torch_model.get_input_embeddings()
+                if embedding_layer is None or not hasattr(embedding_layer, "weight"):
+                    raise TokenEmbeddingOverrideError(
+                        f"Source model {testing_model.model_name} has no input embeddings."
                     )
+                self._validate_embedding_width(
+                    fingerprint["embedding"],
+                    embedding_layer.weight.shape[1],
+                    testing_model,
                 )
+                outputs = self._generate_from_embedding(
+                    torch_model,
+                    tokenizer,
+                    embedding_layer,
+                    fingerprint["embedding"],
+                    generation=generation,
+                    model_params=testing_model.params,
+                )
+            else:
+                if is_derivative:
+                    testing_model.model_pool.register_token_embedding_override(
+                        override_name, token, fingerprint["embedding"]
+                    )
+                    override_registered = True
+                    tokenizer = testing_model.model_pool.get_tokenizer(override_name)
+                    self._validate_template_round_trip(tokenizer, token, specs)
+                outputs = []
+                for start in range(0, len(prompts), self.generation_batch_size):
+                    outputs.extend(
+                        testing_model.generate(
+                            prompts[start : start + self.generation_batch_size],
+                            # PlugAE owns these prompts: applying the target model's
+                            # chat renderer would move the learned vector away from
+                            # the position used during optimization.
+                            prompts_are_rendered=True,
+                            **generation,
+                        )
+                    )
         finally:
             if override_registered:
                 testing_model.model_pool.clear_token_embedding_override(override_name)
@@ -565,7 +595,16 @@ class PlugAEFingerprint(LLMFingerprintInterface):
             trials=trials,
             metadata={
                 "seed": seed,
-                "embedding_transferred": is_derivative,
+                "input_mode": "plugae_template",
+                "requested_input_mode": requested_input_mode,
+                "embedding_transferred": is_source or is_derivative,
+                "embedding_activation": (
+                    "direct_source_embedding"
+                    if is_source
+                    else "temporary_token_override"
+                    if is_derivative
+                    else "none"
+                ),
                 "prompt_templates": [item[0] for item in PROFLINGO_TEMPLATES],
                 "output_parser": dict(self.output_parser or {}),
             },
@@ -602,15 +641,19 @@ class PlugAEFingerprint(LLMFingerprintInterface):
         return examples
 
     def _generate_from_embedding(
-        self, torch_model, tokenizer, embedding_layer, embedding
+        self,
+        torch_model,
+        tokenizer,
+        embedding_layer,
+        embedding,
+        *,
+        generation=None,
+        model_params=None,
     ):
         examples = self._prompt_embedding_examples(
             tokenizer, embedding_layer, embedding
         )
         outputs = []
-        pad_id = tokenizer.pad_token_id
-        if pad_id is None:
-            pad_id = tokenizer.eos_token_id
         for start in range(0, len(examples), self.generation_batch_size):
             batch = examples[start : start + self.generation_batch_size]
             max_length = max(item.shape[0] for item in batch)
@@ -628,19 +671,86 @@ class PlugAEFingerprint(LLMFingerprintInterface):
             for row, item in enumerate(batch):
                 padded[row, -item.shape[0] :] = item
                 attention_mask[row, -item.shape[0] :] = 1
+            generation_params = self._generation_parameters(
+                torch_model,
+                tokenizer,
+                generation=generation,
+                model_params=model_params,
+            )
             with torch.no_grad():
                 generated = torch_model.generate(
                     inputs_embeds=padded,
                     attention_mask=attention_mask,
-                    do_sample=False,
-                    max_new_tokens=self.source_self_test_max_new_tokens,
-                    pad_token_id=pad_id,
+                    **generation_params,
                 )
             outputs.extend(
                 tokenizer.decode(item, skip_special_tokens=True)
                 for item in generated
             )
         return outputs
+
+    @staticmethod
+    def _validate_embedding_width(embedding, expected_width, model):
+        if not isinstance(embedding, torch.Tensor) or embedding.ndim != 1:
+            raise TokenEmbeddingOverrideError(
+                "PlugAE embedding must be a one-dimensional tensor."
+            )
+        actual_width = embedding.numel()
+        if actual_width != expected_width:
+            raise TokenEmbeddingOverrideError(
+                f"Model {model.model_name} embedding width {expected_width} "
+                f"does not match PlugAE embedding width {actual_width}."
+            )
+
+    def _generation_parameters(
+        self, torch_model, tokenizer, *, generation=None, model_params=None
+    ):
+        params = model_params or {}
+        generation = dict(generation or {})
+        supported = {
+            "max_new_tokens",
+            "temperature",
+            "do_sample",
+            "top_p",
+            "top_k",
+            "num_beams",
+            "repetition_penalty",
+            "use_cache",
+        }
+        unknown = set(generation) - supported - {"seed", "input_mode"}
+        if unknown:
+            names = ", ".join(sorted(unknown))
+            raise ValueError(f"Unsupported generation option(s): {names}")
+        generation_params = {
+            "max_new_tokens": params.get(
+                "max_new_tokens", 512
+            ),
+            "temperature": params.get("temperature", 0.7),
+            "do_sample": params.get("do_sample", True),
+            "top_p": params.get("top_p", 0.9),
+            "top_k": params.get("top_k", 50),
+            "pad_token_id": (
+                tokenizer.pad_token_id
+                if tokenizer.pad_token_id is not None
+                else tokenizer.eos_token_id
+            ),
+        }
+        generation_params.update(
+            {key: value for key, value in generation.items() if key in supported}
+        )
+
+        if not generation_params["do_sample"]:
+            generation_params.pop("temperature", None)
+            generation_params.pop("top_p", None)
+            generation_params.pop("top_k", None)
+
+        model_name_lower = torch_model.__class__.__name__.lower()
+        config_name_lower = getattr(
+            getattr(torch_model, "config", None), "model_family", ""
+        ).lower()
+        if "gemma" in model_name_lower or "gemma" in config_name_lower:
+            generation_params["use_cache"] = False
+        return generation_params
 
     def _mean_target_nll(
         self, torch_model, tokenizer, embedding_layer, embedding
@@ -674,7 +784,14 @@ class PlugAEFingerprint(LLMFingerprintInterface):
         self, torch_model, tokenizer, embedding_layer, embedding, *, epoch
     ):
         outputs = self._generate_from_embedding(
-            torch_model, tokenizer, embedding_layer, embedding
+            torch_model,
+            tokenizer,
+            embedding_layer,
+            embedding,
+            generation={
+                "do_sample": False,
+                "max_new_tokens": self.source_self_test_max_new_tokens,
+            },
         )
         trials, metrics = self._trials_and_metrics(
             outputs, seed=self.seed, extra={"epoch": int(epoch)}

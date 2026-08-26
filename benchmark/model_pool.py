@@ -57,7 +57,9 @@ class ModelPool:
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path) if tokenizer_path else None
         override = self.token_embedding_overrides.get(model_name)
         if override is not None:
-            added = tokenizer.add_tokens([override["token"]])
+            added = tokenizer.add_tokens(
+                [override["token"]], special_tokens=False
+            )
             token_ids = tokenizer.encode(override["token"], add_special_tokens=False)
             if added != 1 or token_ids != [override["token_id"]]:
                 raise TokenEmbeddingOverrideError(
@@ -80,7 +82,10 @@ class ModelPool:
 
         try:
             tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_paths[model_name])
-            added = tokenizer.add_tokens([token])
+            # Keep the trigger as an ordinary added token. Special-token
+            # handling is not portable across tokenizer implementations and
+            # can change how the PlugAE prompt is tokenized.
+            added = tokenizer.add_tokens([token], special_tokens=False)
             token_ids = tokenizer.encode(token, add_special_tokens=False)
         except Exception as exc:
             raise TokenEmbeddingOverrideError(
@@ -122,6 +127,13 @@ class ModelPool:
             original_row = input_embeddings.weight[token_id].detach().cpu().clone()
 
         try:
+            expected_width = input_embeddings.weight.shape[1]
+            actual_width = override["embedding"].numel()
+            if expected_width != actual_width:
+                raise TokenEmbeddingOverrideError(
+                    f"Model {model_name} embedding width {expected_width} "
+                    f"does not match candidate width {actual_width}."
+                )
             if token_id >= original_vocab_size:
                 model.resize_token_embeddings(override["vocab_size"])
                 input_embeddings = model.get_input_embeddings()
@@ -130,10 +142,10 @@ class ModelPool:
                 raise TokenEmbeddingOverrideError(
                     f"Model {model_name} did not resize to token id {token_id}."
                 )
-            if input_embeddings.weight.shape[1] != override["embedding"].numel():
+            if input_embeddings.weight.shape[1] != actual_width:
                 raise TokenEmbeddingOverrideError(
                     f"Model {model_name} embedding width {input_embeddings.weight.shape[1]} "
-                    f"does not match candidate width {override['embedding'].numel()}."
+                    f"does not match candidate width {actual_width}."
                 )
 
             with torch.no_grad():

@@ -16,3 +16,4 @@ __pycache__/
 *.pyc
 digest.txt
 reference/
+EXPERIMENT_QUICKSTART_ZH.md

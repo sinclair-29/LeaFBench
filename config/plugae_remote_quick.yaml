@@ -1,0 +1,18 @@
+fingerprint_method: plugae
+fingerprint_type: black-box
+seed: 42
+
+cached_fingerprints_path: cache/plugae_remote_quick/fingerprints.pth
+re_fingerprinting: true
+
+# Two four-digit query pairs exercise both ProFLingo templates while keeping
+# this canary run short.
+query_path: data/plugae_random_4digit_20.csv
+num_queries: 2
+copyright_token: mkahg
+learning_rate: 0.1
+epochs: 3
+optimization_batch_size: 2
+generation_batch_size: 2
+diagnostic_interval: 1
+source_self_test_max_new_tokens: 8

@@ -6,7 +6,8 @@ PROJECT_ROOT="${LEAFBENCH_ROOT:-/raid/chj/fingerprint/LeaFBench}"
 CONFIG_ROOT="config/v100/trap_plugae_smoke"
 BENCHMARK_CONFIG="${CONFIG_ROOT}/benchmark.yaml"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python)}"
-GPU_ID="${GPU_ID:-0}"
+TRAP_GPU_ID="${TRAP_GPU_ID:-0}"
+PLUGAE_GPU_ID="${PLUGAE_GPU_ID:-1}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 RESULTS_ROOT="${RESULTS_ROOT:-${PROJECT_ROOT}/results/v100_trap_plugae_smoke/${RUN_ID}}"
 LOG_ROOT="${LOG_ROOT:-${PROJECT_ROOT}/logs/v100_trap_plugae_smoke/${RUN_ID}}"
@@ -14,6 +15,8 @@ LOG_FILE="${LOG_ROOT}/run.log"
 STATUS_FILE="${LOG_ROOT}/status.json"
 REPORT_FILE="${RESULTS_ROOT}/smoke_validation.json"
 phase="setup"
+trap_pid=""
+plugae_pid=""
 
 cd "${PROJECT_ROOT}"
 mkdir -p "${RESULTS_ROOT}" "${LOG_ROOT}"
@@ -31,6 +34,12 @@ write_status() {
 finish() {
   local rc="$?"
   trap - EXIT INT TERM HUP
+  for child_pid in "${trap_pid}" "${plugae_pid}"; do
+    if [[ -n "${child_pid}" ]] && kill -0 "${child_pid}" 2>/dev/null; then
+      kill "${child_pid}" 2>/dev/null || true
+      wait "${child_pid}" 2>/dev/null || true
+    fi
+  done
   if (( rc == 0 )); then
     write_status completed 0
     echo "PASS: TRAP/PlugAE correctness gate"
@@ -47,7 +56,6 @@ trap 'exit 130' INT TERM HUP
 write_status running
 
 export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
-export CUDA_VISIBLE_DEVICES="${GPU_ID}"
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export TOKENIZERS_PARALLELISM=false
@@ -93,13 +101,13 @@ fi
 run_method() {
   local method="$1"
   local config="${CONFIG_ROOT}/$2"
+  local gpu_id="$3"
   local method_root="${RESULTS_ROOT}/${method}"
   local batch_dir
   mkdir -p "${method_root}"
 
-  phase="${method}_generate"
-  write_status running
-  if ! "${PYTHON_BIN}" -u evaluation.py generate \
+  echo "${method}: starting on physical GPU ${gpu_id}"
+  if ! CUDA_VISIBLE_DEVICES="${gpu_id}" "${PYTHON_BIN}" -u evaluation.py generate \
     --benchmark-config "${BENCHMARK_CONFIG}" \
     --fingerprint-config "${config}" \
     --source-model Phi-3-Mini-4K-Base \
@@ -115,8 +123,6 @@ run_method() {
     return 1
   fi
 
-  phase="${method}_generation_gate"
-  write_status running
   if ! "${PYTHON_BIN}" scripts/v100/trap_plugae_smoke/validate_results.py \
     --batch "${batch_dir}" \
     --method "${method}" \
@@ -126,9 +132,7 @@ run_method() {
     return 1
   fi
 
-  phase="${method}_evaluate"
-  write_status running
-  if ! "${PYTHON_BIN}" -u evaluation.py run \
+  if ! CUDA_VISIBLE_DEVICES="${gpu_id}" "${PYTHON_BIN}" -u evaluation.py run \
     --benchmark-config "${BENCHMARK_CONFIG}" \
     --fingerprint-config "${config}" \
     --evaluation-config "${CONFIG_ROOT}/eval_phi3.yaml" \
@@ -139,9 +143,26 @@ run_method() {
   fi
 }
 
+if [[ "${TRAP_GPU_ID}" == "${PLUGAE_GPU_ID}" ]]; then
+  echo "TRAP_GPU_ID and PLUGAE_GPU_ID must name different GPUs." >&2
+  exit 1
+fi
+
+phase="parallel_experiments"
+write_status running
+run_method trap trap_phi3.yaml "${TRAP_GPU_ID}" &
+trap_pid="$!"
+run_method plugae plugae_phi3.yaml "${PLUGAE_GPU_ID}" &
+plugae_pid="$!"
+
+trap_rc=0
+plugae_rc=0
+wait "${trap_pid}" || trap_rc=$?
+wait "${plugae_pid}" || plugae_rc=$?
 experiment_rc=0
-run_method trap trap_phi3.yaml || experiment_rc=1
-run_method plugae plugae_phi3.yaml || experiment_rc=1
+if (( trap_rc != 0 || plugae_rc != 0 )); then
+  experiment_rc=1
+fi
 
 phase="validate"
 write_status running

@@ -7,7 +7,7 @@ re_fingerprinting: true
 # Only the number of query-target pairs is reduced. Learning rate, epochs and
 # batch sizes are identical to the 20-query experiment.
 query_path: data/plugae_random_4digit_20.csv
-num_queries: 3
+num_queries: 1
 copyright_token: mkahg
 learning_rate: 0.1
 epochs: 30

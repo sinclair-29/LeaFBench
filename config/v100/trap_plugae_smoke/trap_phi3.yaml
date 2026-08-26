@@ -6,9 +6,9 @@ re_fingerprinting: true
 
 # The sample count is deliberately small. All optimization hyperparameters are
 # identical to the 20-item experiment.
-n_goals: 3
+n_goals: 1
 goal_offset: 0
-goal_count: 3
+goal_count: 1
 prompt_seed: 41
 string_type: number_simpletarget
 string_length: 4

@@ -1,0 +1,30 @@
+source_model:
+  model_name: Gemma-2-2B
+
+model_groups:
+  original:
+    - model_name: Gemma-2-2B
+  derivatives:
+    - model_name: Gemma-2-2B-IT
+      modification_type: instruction_tuning
+  negatives:
+    - model_name: Phi-3-Mini-4K-Base
+      negative_type: unrelated
+
+evaluations:
+  model_modification_robustness:
+    enabled: true
+    generation:
+      do_sample: false
+      max_new_tokens: 8
+  deployment_robustness:
+    enabled: false
+  model_specificity:
+    enabled: true
+    seeds: [0]
+    generation:
+      do_sample: false
+      max_new_tokens: 8
+      input_mode: model_rendered
+  prompt_stealthiness:
+    enabled: false

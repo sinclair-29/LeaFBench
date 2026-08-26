@@ -9,8 +9,13 @@ class InstructModel(BaseModel):
         super().__init__(config, model_pool=model_pool, accelerator=accelerator)
 
     def render_prompts(self, prompts, tokenizer):
-        """Apply the same chat formatting used by generation and fingerprinting."""
-        system_prompt = self.params.get('system_prompt', None)
+        """Use a tokenizer chat template when one is explicitly available.
+
+        A tokenizer without a chat template does not identify the instruction
+        format expected by its checkpoint. Preserve the caller's prompt rather
+        than silently inventing a ``User: ... Assistant:`` wrapper.
+        """
+        system_prompt = (self.params or {}).get('system_prompt', None)
         rendered_prompts = []
 
         for prompt in prompts:
@@ -26,15 +31,12 @@ class InstructModel(BaseModel):
                         tokenize=False,
                         add_generation_prompt=True,
                     )
-                except Exception:
-                    if system_prompt is not None:
-                        formatted_prompt = f"{system_prompt}\n\nUser: {prompt}\n\nAssistant:"
-                    else:
-                        formatted_prompt = f"User: {prompt}\n\nAssistant:"
-            elif system_prompt is not None:
-                formatted_prompt = f"{system_prompt}\n\nUser: {prompt}\n\nAssistant:"
+                except Exception as exc:
+                    raise ValueError(
+                        "Tokenizer chat_template could not render the prompt."
+                    ) from exc
             else:
-                formatted_prompt = f"User: {prompt}\n\nAssistant:"
+                formatted_prompt = self._fallback_prompt(prompt, system_prompt)
 
             # Chat templates such as Llama-2's already start with a BOS token.
             # The tokenizer adds that token again when the rendered text is encoded.
@@ -43,6 +45,12 @@ class InstructModel(BaseModel):
             rendered_prompts.append(formatted_prompt)
 
         return rendered_prompts
+
+    @staticmethod
+    def _fallback_prompt(prompt, system_prompt):
+        if system_prompt is None:
+            return prompt
+        return f"{system_prompt}\n\n{prompt}"
     
     # Generation and logits are inherited from BaseModel so that raw and
     # instruction-tuned models share one validated generation-parameter path.

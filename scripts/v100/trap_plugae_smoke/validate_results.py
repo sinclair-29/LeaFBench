@@ -90,8 +90,8 @@ def validate_configs(config_root: Path, verdict: Verdict) -> None:
     if not trap or not plugae or not evaluation:
         return
 
-    verdict.protocol(trap.get("n_goals") == 3, "TRAP smoke sample count must be 3")
-    verdict.protocol(trap.get("goal_count") == 3, "TRAP goal_count must be 3")
+    verdict.protocol(trap.get("n_goals") == 1, "TRAP canary sample count must be 1")
+    verdict.protocol(trap.get("goal_count") == 1, "TRAP goal_count must be 1")
     gcg = trap.get("gcg_config") or {}
     expected_gcg = {
         "num_steps": 1500,
@@ -107,7 +107,7 @@ def validate_configs(config_root: Path, verdict: Verdict) -> None:
             f"TRAP {key} changed: expected {expected!r}, got {gcg.get(key)!r}",
         )
     expected_plugae = {
-        "num_queries": 3,
+        "num_queries": 1,
         "learning_rate": 0.1,
         "epochs": 30,
         "optimization_batch_size": 4,
@@ -190,7 +190,7 @@ def validate_trial_flags(method: str, trial: Mapping[str, Any], where: str, verd
 
 
 def validate_run(method: str, run: Mapping[str, Any], where: str, verdict: Verdict) -> None:
-    expected_trials = 3 if method == "trap" else 6
+    expected_trials = 1 if method == "trap" else 2
     trials = run.get("trials") or []
     verdict.protocol(len(trials) == expected_trials, f"{where}: wrong trial count")
     for trial_index, trial in enumerate(trials, start=1):
@@ -212,7 +212,7 @@ def validate_manifest_and_records(batch: Path, method: str, verdict: Verdict) ->
     manifest = read_json(batch / "fingerprint_config.json", verdict)
     if not manifest:
         return
-    expected_artifacts = 3 if method == "trap" else 1
+    expected_artifacts = 1
     records = sorted(batch.glob("[0-9][0-9][0-9].json"))
     verdict.protocol(manifest.get("schema_version") == 2, f"{method}: schema_version is not 2")
     verdict.protocol(manifest.get("fingerprint_method") == method, f"{method}: manifest method mismatch")
@@ -273,7 +273,7 @@ def validate_manifest_and_records(batch: Path, method: str, verdict: Verdict) ->
         queries = payload.get("queries") or []
         targets = payload.get("targets") or []
         keywords = payload.get("keywords") or []
-        verdict.protocol(len(queries) == len(targets) == len(keywords) == 3, "PlugAE query payload is not the requested 3-pair sample")
+        verdict.protocol(len(queries) == len(targets) == len(keywords) == 1, "PlugAE query payload is not the requested 1-pair sample")
         text_fields_valid = all(
             isinstance(value, str) for values in (queries, targets, keywords) for value in values
         )
@@ -300,7 +300,7 @@ def validate_manifest_and_records(batch: Path, method: str, verdict: Verdict) ->
             baseline, final = checkpoints[0], checkpoints[-1]
             for checkpoint in checkpoints:
                 trials = checkpoint.get("trials") or []
-                verdict.protocol(len(trials) == 6, "PlugAE source diagnostic must contain 3 queries x 2 templates")
+                verdict.protocol(len(trials) == 2, "PlugAE source diagnostic must contain 1 query x 2 templates")
                 verdict.protocol(
                     {trial.get("template_id") for trial in trials} == {"alpaca", "zero_shot"},
                     "PlugAE diagnostic omitted a prompt template",
