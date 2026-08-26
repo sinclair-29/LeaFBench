@@ -1,15 +1,13 @@
 source_model:
-  model_name: Gemma-2-2B
+  model_name: Qwen2.5-7B
 
 model_groups:
   original:
-    - model_name: Gemma-2-2B
+    - model_name: Qwen2.5-7B
   derivatives:
-    - model_name: Gemma-2-2B-IT
+    - model_name: Qwen2.5-7B-Instruct
       modification_type: instruction_tuning
-  negatives:
-    - model_name: Phi-3-Mini-4K-Base
-      negative_type: unrelated
+  negatives: []
 
 evaluations:
   model_modification_robustness:
@@ -20,7 +18,7 @@ evaluations:
   deployment_robustness:
     enabled: false
   model_specificity:
-    enabled: true
+    enabled: false
     seeds: [0]
     generation:
       do_sample: false

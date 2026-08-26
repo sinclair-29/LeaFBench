@@ -183,7 +183,12 @@ class PlugAEFingerprint(LLMFingerprintInterface):
                         ignore_index=-100,
                         reduction="none",
                     ).view(labels.shape[0], -1)
-                    loss = token_losses.sum(dim=1).mean()
+                    target_mask = labels[:, 1:] != -100
+                    target_tokens = target_mask.sum()
+                    loss = (
+                        token_losses.masked_select(target_mask).sum()
+                        / target_tokens.clamp_min(1)
+                    )
                     loss.backward()
                     optimizer.step()
 

@@ -11,8 +11,8 @@ LOG_ROOT="${LOG_ROOT:-${PROJECT_ROOT}/logs/plugae_remote_quick/${RUN_ID}}"
 BENCHMARK_CONFIG="config/benchmark_plugae_remote_quick.yaml"
 FINGERPRINT_CONFIG="config/plugae_remote_quick.yaml"
 EVALUATION_CONFIG="config/evaluation_plugae_remote_quick.yaml"
-SOURCE_MODEL="Gemma-2-2B"
-MODEL_ALIAS="gemma2_2b_quick"
+SOURCE_MODEL="Qwen2.5-7B"
+MODEL_ALIAS="qwen25_7b_quick"
 
 cd "${PROJECT_ROOT}"
 export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
@@ -22,7 +22,7 @@ export TRANSFORMERS_OFFLINE=1
 mkdir -p "${RESULTS_ROOT}" "${LOG_ROOT}"
 
 {
-  echo "PlugAE quick test: generating fingerprint on GPU ${GPU_ID}"
+  echo "PlugAE Qwen2.5-7B quick test: generating fingerprint on GPU ${GPU_ID}"
   CUDA_VISIBLE_DEVICES="${GPU_ID}" "${PYTHON_BIN}" -u evaluation.py generate \
     --benchmark-config "${BENCHMARK_CONFIG}" \
     --fingerprint-config "${FINGERPRINT_CONFIG}" \
@@ -49,7 +49,7 @@ print(max(candidates)[1])
 PY
 )"
 
-  echo "PlugAE quick test: evaluating ${BATCH_DIR}"
+  echo "PlugAE Qwen2.5-7B quick test: evaluating ${BATCH_DIR}"
   CUDA_VISIBLE_DEVICES="${GPU_ID}" "${PYTHON_BIN}" -u evaluation.py run \
     --benchmark-config "${BENCHMARK_CONFIG}" \
     --fingerprint-config "${FINGERPRINT_CONFIG}" \

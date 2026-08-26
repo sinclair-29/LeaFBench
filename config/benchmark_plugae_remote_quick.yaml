@@ -1,5 +1,4 @@
-# Minimal remote PlugAE panel.
-# Adjust /raid/chj/fingerprint/models if the server uses another model root.
+# Minimal remote PlugAE panel for Qwen2.5-7B.
 max_loaded_models: 1
 offload_path: cache/plugae_remote_quick/model_offload
 
@@ -12,18 +11,13 @@ default_generation_params:
   max_input_length: 1024
 
 models:
-  - model_family: Gemma-2-2B
+  - model_family: Qwen2.5-7B
     pretrained_model:
-      model_name: Gemma-2-2B
-      model_path: /raid/chj/fingerprint/models/gemma-2-2b
+      model_name: Qwen2.5-7B
+      model_path: /raid/chj/fingerprint/models/Qwen2.5-7B
     instruct_model:
-      model_name: Gemma-2-2B-IT
-      model_path: /raid/chj/fingerprint/models/gemma-2-2b-it
-
-  - model_family: Phi-3-Mini
-    pretrained_model:
-      model_name: Phi-3-Mini-4K-Base
-      model_path: /raid/chj/fingerprint/models/Phi-3-mini-4k-base
+      model_name: Qwen2.5-7B-Instruct
+      model_path: /raid/chj/fingerprint/models/Qwen2.5-7B-Instruct
 
 training_data:
   models: []
